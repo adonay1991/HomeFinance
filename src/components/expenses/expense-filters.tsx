@@ -60,12 +60,11 @@ export function ExpenseFilters({ activeCategory, startDate, endDate }: ExpenseFi
   return (
     <div className="space-y-3">
       {/* Barra de filtros rápidos - categorías */}
-      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+      <div className="flex flex-wrap gap-2">
         <Button
           variant={!activeCategory ? 'default' : 'outline'}
           size="sm"
           onClick={() => updateFilters({ category: undefined })}
-          className="flex-shrink-0"
         >
           Todos
         </Button>
@@ -75,7 +74,7 @@ export function ExpenseFilters({ activeCategory, startDate, endDate }: ExpenseFi
             variant={activeCategory === value ? 'default' : 'outline'}
             size="sm"
             onClick={() => toggleCategory(value)}
-            className="flex-shrink-0 gap-1.5"
+            className="gap-1.5"
           >
             <div
               className="w-2 h-2 rounded-full"
