@@ -6,24 +6,57 @@ import { NextResponse } from 'next/server'
 // ==========================================
 // Esta ruta maneja la redirección después de que
 // el usuario hace click en el magic link del email.
-// Intercambia el código por una sesión y redirige
-// al dashboard.
+// Supabase puede enviar:
+// - `code`: para flujo PKCE (intercambiar por sesión)
+// - `token_hash` + `type`: para verificación de email
+// - `error`: si hubo un problema
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
+
   const code = searchParams.get('code')
+  const token_hash = searchParams.get('token_hash')
+  const type = searchParams.get('type') as 'signup' | 'recovery' | 'invite' | 'magiclink' | null
   const next = searchParams.get('next') ?? '/'
+  const error = searchParams.get('error')
+  const error_description = searchParams.get('error_description')
 
-  if (code) {
-    const supabase = await createClient()
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
-
-    if (!error) {
-      // Éxito: redirigir al dashboard o a la ruta especificada
-      return NextResponse.redirect(`${origin}${next}`)
-    }
+  // Si hay error de Supabase, redirigir al login
+  if (error) {
+    console.error('[Auth Callback] Error:', error, error_description)
+    return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(error_description || error)}`)
   }
 
-  // Error: redirigir al login con mensaje de error
-  return NextResponse.redirect(`${origin}/login?error=auth_callback_error`)
+  const supabase = await createClient()
+
+  // Caso 1: Flujo PKCE con código
+  if (code) {
+    const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
+
+    if (!exchangeError) {
+      return NextResponse.redirect(`${origin}${next}`)
+    }
+
+    console.error('[Auth Callback] Code exchange error:', exchangeError.message)
+    return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(exchangeError.message)}`)
+  }
+
+  // Caso 2: Verificación con token_hash (email verification, magic link)
+  if (token_hash && type) {
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      token_hash,
+      type,
+    })
+
+    if (!verifyError) {
+      return NextResponse.redirect(`${origin}${next}`)
+    }
+
+    console.error('[Auth Callback] Token verification error:', verifyError.message)
+    return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(verifyError.message)}`)
+  }
+
+  // Si no hay code ni token_hash, algo salió mal
+  console.error('[Auth Callback] No code or token_hash provided')
+  return NextResponse.redirect(`${origin}/login?error=missing_auth_params`)
 }

@@ -16,11 +16,16 @@ export async function signInWithMagicLink(formData: FormData) {
 
   const supabase = await createClient()
 
+  // Determinar la URL base según el entorno
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
+    || process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`
+    || 'http://localhost:3000'
+
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {
       // URL a la que redirige después de hacer click en el magic link
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback`,
+      emailRedirectTo: `${siteUrl}/auth/callback`,
     },
   })
 
