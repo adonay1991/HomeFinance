@@ -2,16 +2,17 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 // ==========================================
-// PROXY.TS - PROTECCIÓN DE RUTAS (Next.js 16)
+// PROXY - PROTECCIÓN DE RUTAS (Next.js 16)
 // ==========================================
-// En Next.js 16, proxy.ts reemplaza a middleware.ts
+// En Next.js 16, proxy.ts es el archivo preferido
 // para la lógica de autenticación y protección de rutas.
+// Se ejecuta antes de cada request.
 
 // Rutas públicas que no requieren autenticación
-const publicRoutes = ['/login', '/auth/callback']
+const publicRoutes = ['/login', '/auth/callback', '/offline']
 
 // Rutas que siempre deben ser accesibles (assets, API, etc.)
-const ignoredRoutes = ['/_next', '/api', '/favicon.ico', '/manifest.json', '/icons']
+const ignoredRoutes = ['/_next', '/api', '/favicon.ico', '/manifest.json', '/icons', '/sw.js']
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -75,7 +76,7 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Aplicar a todas las rutas excepto archivos estáticos
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    // Aplicar a todas las rutas excepto archivos estáticos y PWA
+    '/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.json|icons/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 }
