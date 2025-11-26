@@ -42,6 +42,33 @@ export async function signOut() {
   redirect('/login')
 }
 
+// ==========================================
+// DEV LOGIN - SOLO PARA DESARROLLO LOCAL
+// ==========================================
+// Permite iniciar sesión sin magic link usando credenciales de prueba.
+// IMPORTANTE: Crear usuario de prueba en Supabase Dashboard:
+// Authentication > Users > Add user > Email: dev@test.com, Password: devpass123
+
+export async function signInWithDevCredentials() {
+  // Solo permitir en desarrollo
+  if (process.env.NODE_ENV !== 'development') {
+    return { error: 'Dev login solo disponible en desarrollo' }
+  }
+
+  const supabase = await createClient()
+
+  const { error } = await supabase.auth.signInWithPassword({
+    email: process.env.DEV_USER_EMAIL || 'dev@test.com',
+    password: process.env.DEV_USER_PASSWORD || 'devpass123',
+  })
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  redirect('/')
+}
+
 export async function getUser() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
