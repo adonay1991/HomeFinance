@@ -2,6 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { CURRENCY_SYMBOL } from '@/lib/constants'
 import { getExpenses, getMonthlyStats, getMonthlyHistory } from '@/lib/actions/expenses'
 import { getBudgetSummary } from '@/lib/actions/budgets'
+import { getUserProfile } from '@/lib/auth/actions'
 import { ExpenseList } from '@/components/expenses'
 import { CategoryChart, MonthlyChart } from '@/components/charts'
 import { BudgetAlert } from '@/components/alerts'
@@ -25,6 +26,7 @@ export default async function DashboardPage() {
     { data: recentExpenses },
     { data: monthlyHistory },
     { data: budgetSummary },
+    userProfile,
   ] = await Promise.all([
     getMonthlyStats(currentYear, currentMonth),
     getMonthlyStats(
@@ -34,7 +36,11 @@ export default async function DashboardPage() {
     getExpenses({ limit: 5 }),
     getMonthlyHistory(6),
     getBudgetSummary(currentYear, currentMonth),
+    getUserProfile(),
   ])
+
+  // Obtener el primer nombre del usuario
+  const firstName = userProfile?.name?.split(' ')[0]
 
   // Datos del presupuesto
   const budget = budgetSummary?.budget || 0
@@ -54,7 +60,9 @@ export default async function DashboardPage() {
       {/* Saludo y fecha */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">¡Hola! 👋</h1>
+          <h1 className="text-2xl font-bold">
+            ¡Hola{firstName ? `, ${firstName}` : ''}! 👋
+          </h1>
           <p className="text-muted-foreground text-sm">
             {now.toLocaleDateString('es-ES', {
               weekday: 'long',
