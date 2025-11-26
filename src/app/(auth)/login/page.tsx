@@ -1,15 +1,19 @@
 'use client'
 
 import { useState } from 'react'
-import { signInWithMagicLink } from '@/lib/auth/actions'
+import { signInWithMagicLink, signInWithDevCredentials } from '@/lib/auth/actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Home, Mail, Loader2, CheckCircle2 } from 'lucide-react'
+import { Home, Mail, Loader2, CheckCircle2, Zap } from 'lucide-react'
+
+// Detectar si estamos en desarrollo (variable inyectada en build time)
+const isDev = process.env.NODE_ENV === 'development'
 
 export default function LoginPage() {
   const [isPending, setIsPending] = useState(false)
+  const [isDevPending, setIsDevPending] = useState(false)
   const [emailSent, setEmailSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -25,6 +29,19 @@ export default function LoginPage() {
     } else {
       setEmailSent(true)
       setIsPending(false)
+    }
+  }
+
+  async function handleDevLogin() {
+    setIsDevPending(true)
+    setError(null)
+
+    const result = await signInWithDevCredentials()
+
+    // Si hay error, mostrarlo (si no hay error, redirect ya ocurrió)
+    if (result?.error) {
+      setError(result.error)
+      setIsDevPending(false)
     }
   }
 
@@ -98,7 +115,7 @@ export default function LoginPage() {
                   <p className="text-sm text-destructive">{error}</p>
                 )}
 
-                <Button type="submit" className="w-full" disabled={isPending}>
+                <Button type="submit" className="w-full" disabled={isPending || isDevPending}>
                   {isPending ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -108,6 +125,34 @@ export default function LoginPage() {
                     'Enviar enlace mágico'
                   )}
                 </Button>
+
+                {/* Botón de desarrollo - solo visible en dev */}
+                {isDev && (
+                  <div className="pt-4 border-t">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full border-dashed border-amber-500/50 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                      onClick={handleDevLogin}
+                      disabled={isPending || isDevPending}
+                    >
+                      {isDevPending ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Entrando...
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-4 h-4 mr-2" />
+                          Dev Login (sin email)
+                        </>
+                      )}
+                    </Button>
+                    <p className="text-xs text-muted-foreground text-center mt-2">
+                      Solo disponible en desarrollo
+                    </p>
+                  </div>
+                )}
               </form>
             )}
           </CardContent>
