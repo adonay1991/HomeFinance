@@ -1,12 +1,18 @@
 'use client'
 
-import { Home, LogOut } from 'lucide-react'
+import { Home, LogOut, Moon, Sun, Monitor } from 'lucide-react'
+import { useTheme } from 'next-themes'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuPortal,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { signOut } from '@/lib/auth/actions'
@@ -15,7 +21,7 @@ import { signOut } from '@/lib/auth/actions'
 // HEADER COMPONENT
 // ==========================================
 // Header simple con logo y menú de usuario.
-// Diseñado para ser compacto en móvil.
+// Incluye selector de tema (claro/oscuro/sistema).
 
 interface HeaderProps {
   userName?: string
@@ -23,6 +29,8 @@ interface HeaderProps {
 }
 
 export function Header({ userName, userEmail }: HeaderProps) {
+  const { setTheme, theme } = useTheme()
+
   // Obtener iniciales del nombre
   const initials = userName
     ? userName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
@@ -49,6 +57,7 @@ export function Header({ userName, userEmail }: HeaderProps) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
+            {/* Info del usuario */}
             <div className="flex items-center justify-start gap-2 p-2">
               <div className="flex flex-col space-y-0.5 leading-none">
                 {userName && (
@@ -59,6 +68,46 @@ export function Header({ userName, userEmail }: HeaderProps) {
                 )}
               </div>
             </div>
+
+            <DropdownMenuSeparator />
+
+            {/* Selector de tema */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Sun className="mr-2 h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+                <Moon className="absolute mr-2 h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+                <span className="ml-6">Tema</span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuSubContent>
+                  <DropdownMenuItem
+                    onClick={() => setTheme('light')}
+                    className={theme === 'light' ? 'bg-accent' : ''}
+                  >
+                    <Sun className="mr-2 h-4 w-4" />
+                    Claro
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setTheme('dark')}
+                    className={theme === 'dark' ? 'bg-accent' : ''}
+                  >
+                    <Moon className="mr-2 h-4 w-4" />
+                    Oscuro
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setTheme('system')}
+                    className={theme === 'system' ? 'bg-accent' : ''}
+                  >
+                    <Monitor className="mr-2 h-4 w-4" />
+                    Sistema
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuPortal>
+            </DropdownMenuSub>
+
+            <DropdownMenuSeparator />
+
+            {/* Cerrar sesión */}
             <DropdownMenuItem
               className="text-destructive focus:text-destructive cursor-pointer"
               onClick={() => signOut()}
