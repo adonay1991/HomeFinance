@@ -55,8 +55,35 @@ export async function GET(request: NextRequest) {
     const client = getEnableBankingClient()
     const session = await client.createSession(code)
 
-    // Calcular fecha de expiración de la sesión
-    const expiresAt = new Date(session.validUntil)
+    console.log('[Bank Callback] Session created:', JSON.stringify(session, null, 2))
+    console.log('[Bank Callback] validUntil raw value:', session.validUntil, 'type:', typeof session.validUntil)
+
+    // Parsear fecha de expiración de forma robusta
+    // Enable Banking puede devolver formatos como:
+    // - "2025-02-27T12:00:00.000000+00:00" (RFC3339 con microsegundos)
+    // - "2025-02-27T12:00:00Z" (ISO 8601)
+    // - "2025-02-27" (solo fecha)
+    let expiresAt: Date | null = null
+    if (session.validUntil) {
+      try {
+        // Normalizar formato: remover microsegundos excesivos si existen
+        let dateString = session.validUntil
+        // Convertir "+00:00" a "Z" para mejor compatibilidad
+        dateString = dateString.replace(/\+00:00$/, 'Z')
+        // Reducir microsegundos a milisegundos (de .000000 a .000)
+        dateString = dateString.replace(/\.(\d{6})/, (_, ms) => '.' + ms.slice(0, 3))
+
+        const parsed = new Date(dateString)
+        if (!isNaN(parsed.getTime())) {
+          expiresAt = parsed
+          console.log('[Bank Callback] Parsed expiresAt:', expiresAt.toISOString())
+        } else {
+          console.warn('[Bank Callback] Could not parse validUntil after normalization:', dateString)
+        }
+      } catch (dateError) {
+        console.warn('[Bank Callback] Error parsing validUntil:', session.validUntil, dateError)
+      }
+    }
 
     // Guardar conexión en DB
     const [connection] = await db
