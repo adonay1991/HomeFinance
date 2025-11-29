@@ -43,6 +43,7 @@ export function BalanceCard() {
   const loadBalance = useCallback(async (forceRefresh = false) => {
     try {
       setError(null)
+      setIsLoading(true)
 
       // Intentar cargar del cache primero
       const cachedData = localStorage.getItem(BALANCE_CACHE_KEY)
@@ -54,8 +55,9 @@ export function BalanceCard() {
       const res = await fetch('/api/bank/balance', { credentials: 'include' })
 
       if (res.status === 404) {
-        // No hay banco conectado
+        // No hay banco conectado - esto NO es un error, simplemente no hay banco
         setBalance(null)
+        setError(null) // Importante: limpiar error
         localStorage.removeItem(BALANCE_CACHE_KEY)
         return
       }
@@ -76,20 +78,20 @@ export function BalanceCard() {
       const data = await res.json()
       setBalance(data)
       setRateLimitError(null)
+      setError(null)
 
       // Guardar en cache
       localStorage.setItem(BALANCE_CACHE_KEY, JSON.stringify(data))
       localStorage.setItem(LAST_SYNC_KEY, Date.now().toString())
     } catch (err) {
       console.error('[BalanceCard] Error:', err)
-      // Solo mostrar error si no tenemos datos en cache
-      if (!balance) {
-        setError(err instanceof Error ? err.message : 'Error desconocido')
-      }
+      setRateLimitError(null)
+      // Mostrar error - si hay cache, se mostrará con el error superpuesto
+      setError(err instanceof Error ? err.message : 'Error al conectar con el banco')
     } finally {
       setIsLoading(false)
     }
-  }, [balance])
+  }, [])
 
   // Verificar si podemos sincronizar (cooldown)
   const checkCanSync = useCallback(() => {
@@ -185,12 +187,49 @@ export function BalanceCard() {
     )
   }
 
+  // Si hay error pero no es por falta de banco (404), mostrar card con error
   if (error && !balance) {
-    return null // No mostrar nada si no hay banco y hay error
+    return (
+      <Card className="bg-gradient-to-br from-red-500/10 to-red-500/5 border-red-500/20">
+        <CardContent className="pt-6">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                <Building2 className="h-4 w-4" />
+                Saldo actual
+              </p>
+              <p className="text-2xl font-bold tracking-tight mt-1 text-muted-foreground">
+                --,-- €
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => loadBalance(true)}
+              disabled={isLoading}
+              className="text-muted-foreground hover:text-foreground"
+              title="Reintentar"
+            >
+              {isLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+          <div className="flex items-start gap-2 mt-3 p-2 rounded-md bg-red-500/10 border border-red-500/20">
+            <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-red-700 dark:text-red-300">
+              No se pudo conectar con el banco. Intenta de nuevo más tarde.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    )
   }
 
   if (!balance) {
-    return null // No hay banco conectado
+    return null // No hay banco conectado (404)
   }
 
   return (
@@ -228,6 +267,16 @@ export function BalanceCard() {
           </Button>
         </div>
 
+        {/* Mensaje de error (no rate limit) */}
+        {error && !rateLimitError && (
+          <div className="flex items-start gap-2 mt-3 p-2 rounded-md bg-orange-500/10 border border-orange-500/20">
+            <AlertCircle className="h-4 w-4 text-orange-600 dark:text-orange-400 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-orange-700 dark:text-orange-300">
+              Usando datos guardados. No se pudo actualizar el saldo.
+            </p>
+          </div>
+        )}
+
         {/* Mensaje de rate limit */}
         {rateLimitError && (
           <div className="flex items-start gap-2 mt-3 p-2 rounded-md bg-yellow-500/10 border border-yellow-500/20">
@@ -238,7 +287,7 @@ export function BalanceCard() {
           </div>
         )}
 
-        {balance.lastSyncedAt && !rateLimitError && (
+        {balance.lastSyncedAt && !rateLimitError && !error && (
           <p className="text-xs text-muted-foreground mt-3">
             Última sync: {formatRelativeTime(balance.lastSyncedAt)}
           </p>
