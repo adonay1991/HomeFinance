@@ -15,8 +15,8 @@ export async function GET(request: NextRequest) {
   const error = searchParams.get('error')
 
   // URL de redirección al perfil con mensajes
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-  const redirectBase = `${appUrl}/profile`
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
+  const redirectBase = `${siteUrl}/profile`
 
   // Si hay error del banco
   if (error) {
