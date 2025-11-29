@@ -114,8 +114,22 @@ export async function GET() {
           totalBalance += balanceAmount
           primaryCurrency = relevantBalance.balanceAmount.currency
         } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : String(err)
           console.error(`[Bank Balance] Error obteniendo balance de cuenta ${account.id}:`, err)
-          // Continuar con la siguiente cuenta
+
+          // Detectar rate limit (429)
+          if (errorMessage.includes('RATE_LIMIT') || errorMessage.includes('429') || errorMessage.includes('exceeded')) {
+            return NextResponse.json(
+              {
+                error: 'Límite de consultas alcanzado',
+                code: 'RATE_LIMIT',
+                message: 'Has consultado el saldo demasiadas veces. Los bancos limitan las consultas a ~4 por día. Intenta de nuevo más tarde.',
+                retryAfter: 3600 // 1 hora en segundos
+              },
+              { status: 429 }
+            )
+          }
+          // Continuar con la siguiente cuenta para otros errores
         }
       }
     }

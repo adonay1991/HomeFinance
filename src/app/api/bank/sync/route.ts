@@ -215,6 +215,20 @@ export async function POST(request: NextRequest) {
 
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : 'Error desconocido'
+
+          // Detectar rate limit (429)
+          if (errorMsg.includes('RATE_LIMIT') || errorMsg.includes('429') || errorMsg.includes('exceeded')) {
+            return NextResponse.json(
+              {
+                error: 'Límite de consultas alcanzado',
+                code: 'RATE_LIMIT',
+                message: 'El banco ha limitado las consultas. Los bancos permiten ~4 consultas por día. Intenta de nuevo más tarde.',
+                retryAfter: 3600
+              },
+              { status: 429 }
+            )
+          }
+
           result.errors?.push(errorMsg)
 
           // Registrar error en log
