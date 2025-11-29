@@ -187,10 +187,11 @@ export function BalanceCard() {
     )
   }
 
-  // Si hay error pero no es por falta de banco (404), mostrar card con error
-  if (error && !balance) {
+  // Si hay error o rate limit pero no hay balance cacheado, mostrar card con error
+  if ((error || rateLimitError) && !balance) {
+    const isRateLimit = !!rateLimitError
     return (
-      <Card className="bg-gradient-to-br from-red-500/10 to-red-500/5 border-red-500/20">
+      <Card className={`bg-gradient-to-br ${isRateLimit ? 'from-yellow-500/10 to-yellow-500/5 border-yellow-500/20' : 'from-red-500/10 to-red-500/5 border-red-500/20'}`}>
         <CardContent className="pt-6">
           <div className="flex items-start justify-between">
             <div>
@@ -217,10 +218,12 @@ export function BalanceCard() {
               )}
             </Button>
           </div>
-          <div className="flex items-start gap-2 mt-3 p-2 rounded-md bg-red-500/10 border border-red-500/20">
-            <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
-            <p className="text-xs text-red-700 dark:text-red-300">
-              No se pudo conectar con el banco. Intenta de nuevo más tarde.
+          <div className={`flex items-start gap-2 mt-3 p-2 rounded-md ${isRateLimit ? 'bg-yellow-500/10 border border-yellow-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
+            <AlertCircle className={`h-4 w-4 mt-0.5 flex-shrink-0 ${isRateLimit ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`} />
+            <p className={`text-xs ${isRateLimit ? 'text-yellow-700 dark:text-yellow-300' : 'text-red-700 dark:text-red-300'}`}>
+              {isRateLimit
+                ? rateLimitError
+                : 'No se pudo conectar con el banco. Intenta de nuevo más tarde.'}
             </p>
           </div>
         </CardContent>
@@ -228,8 +231,13 @@ export function BalanceCard() {
     )
   }
 
-  if (!balance) {
+  if (!balance && !error && !rateLimitError) {
     return null // No hay banco conectado (404)
+  }
+
+  // Si llegamos aquí sin balance pero con error, no deberíamos llegar, pero por seguridad:
+  if (!balance) {
+    return null
   }
 
   return (
