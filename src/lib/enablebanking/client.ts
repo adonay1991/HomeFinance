@@ -216,11 +216,23 @@ export class EnableBankingClient {
    * @param accountUid UID de la cuenta
    */
   async getBalances(accountUid: string): Promise<Balance[]> {
-    const data = await this.request<{ balances: Balance[] }>(
+    const data = await this.request<{
+      balances: Array<{
+        balance_type: string
+        balance_amount: { amount: string; currency: string }
+        reference_date?: string
+      }>
+    }>(
       'GET',
       `/accounts/${accountUid}/balances`
     )
-    return data.balances || []
+
+    // Mapear de snake_case a camelCase
+    return (data.balances || []).map(b => ({
+      balanceType: b.balance_type as Balance['balanceType'],
+      balanceAmount: b.balance_amount,
+      referenceDate: b.reference_date,
+    }))
   }
 
   /**

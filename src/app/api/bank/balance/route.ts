@@ -80,27 +80,39 @@ export async function GET() {
         try {
           const balances = await client.getBalances(account.accountUid)
 
+          console.log(`[Bank Balance] Cuenta ${account.id} - balances raw:`, JSON.stringify(balances, null, 2))
+
+          // Si no hay balances, saltar esta cuenta
+          if (!balances || balances.length === 0) {
+            console.warn(`[Bank Balance] No hay balances para la cuenta ${account.id}`)
+            continue
+          }
+
           // Buscar el balance más relevante (closingAvailable o interimAvailable)
           const relevantBalance = balances.find(b =>
             b.balanceType === 'closingAvailable' ||
             b.balanceType === 'interimAvailable'
           ) || balances[0]
 
-          if (relevantBalance) {
-            const balanceAmount = parseFloat(relevantBalance.balanceAmount.amount)
-
-            allBalances.push({
-              accountId: account.id,
-              accountName: account.name,
-              iban: account.iban ? maskIban(account.iban) : null,
-              currency: relevantBalance.balanceAmount.currency,
-              balance: balanceAmount,
-              balanceType: relevantBalance.balanceType,
-            })
-
-            totalBalance += balanceAmount
-            primaryCurrency = relevantBalance.balanceAmount.currency
+          // Verificar que balanceAmount existe
+          if (!relevantBalance?.balanceAmount?.amount) {
+            console.warn(`[Bank Balance] Balance sin monto para cuenta ${account.id}:`, relevantBalance)
+            continue
           }
+
+          const balanceAmount = parseFloat(relevantBalance.balanceAmount.amount)
+
+          allBalances.push({
+            accountId: account.id,
+            accountName: account.name,
+            iban: account.iban ? maskIban(account.iban) : null,
+            currency: relevantBalance.balanceAmount.currency,
+            balance: balanceAmount,
+            balanceType: relevantBalance.balanceType,
+          })
+
+          totalBalance += balanceAmount
+          primaryCurrency = relevantBalance.balanceAmount.currency
         } catch (err) {
           console.error(`[Bank Balance] Error obteniendo balance de cuenta ${account.id}:`, err)
           // Continuar con la siguiente cuenta
