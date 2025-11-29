@@ -1,14 +1,15 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Building2, RefreshCw, Loader2 } from 'lucide-react'
+import { Building2, RefreshCw, Loader2, AlertCircle } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
 // ==========================================
 // BALANCE CARD - Saldo actual de la cuenta bancaria
+// Con manejo de rate limits y cache local
 // ==========================================
 
 interface BalanceData {
@@ -25,24 +26,45 @@ interface BalanceData {
   lastSyncedAt: string | null
 }
 
+// Clave para localStorage
+const BALANCE_CACHE_KEY = 'homefinance_balance_cache'
+const LAST_SYNC_KEY = 'homefinance_last_sync'
+const MIN_SYNC_INTERVAL = 60 * 60 * 1000 // 1 hora en milisegundos
+
 export function BalanceCard() {
   const [balance, setBalance] = useState<BalanceData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSyncing, setIsSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [rateLimitError, setRateLimitError] = useState<string | null>(null)
+  const [canSync, setCanSync] = useState(true)
 
-  useEffect(() => {
-    loadBalance()
-  }, [])
-
-  async function loadBalance() {
+  // Cargar balance del cache primero, luego intentar actualizar
+  const loadBalance = useCallback(async (forceRefresh = false) => {
     try {
       setError(null)
+
+      // Intentar cargar del cache primero
+      const cachedData = localStorage.getItem(BALANCE_CACHE_KEY)
+      if (cachedData && !forceRefresh) {
+        const cached = JSON.parse(cachedData) as BalanceData
+        setBalance(cached)
+      }
+
       const res = await fetch('/api/bank/balance', { credentials: 'include' })
 
       if (res.status === 404) {
-        // No hay banco conectado - no es un error
+        // No hay banco conectado
         setBalance(null)
+        localStorage.removeItem(BALANCE_CACHE_KEY)
+        return
+      }
+
+      if (res.status === 429) {
+        // Rate limit - mostrar mensaje pero mantener datos en cache
+        const data = await res.json()
+        setRateLimitError(data.message || 'Límite de consultas alcanzado. Intenta más tarde.')
+        // No borrar el balance cacheado, solo mostrar el error
         return
       }
 
@@ -53,31 +75,86 @@ export function BalanceCard() {
 
       const data = await res.json()
       setBalance(data)
+      setRateLimitError(null)
+
+      // Guardar en cache
+      localStorage.setItem(BALANCE_CACHE_KEY, JSON.stringify(data))
+      localStorage.setItem(LAST_SYNC_KEY, Date.now().toString())
     } catch (err) {
       console.error('[BalanceCard] Error:', err)
-      setError(err instanceof Error ? err.message : 'Error desconocido')
+      // Solo mostrar error si no tenemos datos en cache
+      if (!balance) {
+        setError(err instanceof Error ? err.message : 'Error desconocido')
+      }
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [balance])
+
+  // Verificar si podemos sincronizar (cooldown)
+  const checkCanSync = useCallback(() => {
+    const lastSync = localStorage.getItem(LAST_SYNC_KEY)
+    if (!lastSync) {
+      setCanSync(true)
+      return true
+    }
+
+    const elapsed = Date.now() - parseInt(lastSync, 10)
+    const canSyncNow = elapsed >= MIN_SYNC_INTERVAL
+    setCanSync(canSyncNow)
+    return canSyncNow
+  }, [])
+
+  useEffect(() => {
+    loadBalance()
+    checkCanSync()
+
+    // Verificar cada minuto si podemos sincronizar
+    const interval = setInterval(checkCanSync, 60000)
+    return () => clearInterval(interval)
+  }, [loadBalance, checkCanSync])
 
   async function handleSync() {
+    // Verificar cooldown
+    if (!checkCanSync()) {
+      const lastSync = localStorage.getItem(LAST_SYNC_KEY)
+      if (lastSync) {
+        const elapsed = Date.now() - parseInt(lastSync, 10)
+        const remaining = Math.ceil((MIN_SYNC_INTERVAL - elapsed) / 60000)
+        setRateLimitError(`Espera ${remaining} minutos antes de sincronizar de nuevo.`)
+      }
+      return
+    }
+
     setIsSyncing(true)
+    setRateLimitError(null)
+
     try {
-      // Primero sincronizar transacciones
-      await fetch('/api/bank/sync', {
+      // Sincronizar transacciones
+      const syncRes = await fetch('/api/bank/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ daysBack: 30 }),
       })
 
-      // Luego recargar balance
-      await loadBalance()
+      if (syncRes.status === 429) {
+        const data = await syncRes.json()
+        setRateLimitError(data.message || 'Límite de consultas del banco alcanzado. Intenta en 1 hora.')
+        return
+      }
+
+      // Actualizar timestamp de sync
+      localStorage.setItem(LAST_SYNC_KEY, Date.now().toString())
+
+      // Recargar balance (forzar refresh)
+      await loadBalance(true)
     } catch (err) {
       console.error('[BalanceCard] Sync error:', err)
+      setRateLimitError('Error al sincronizar. Intenta más tarde.')
     } finally {
       setIsSyncing(false)
+      checkCanSync()
     }
   }
 
@@ -108,8 +185,12 @@ export function BalanceCard() {
     )
   }
 
-  if (error || !balance) {
-    return null // No mostrar nada si no hay banco
+  if (error && !balance) {
+    return null // No mostrar nada si no hay banco y hay error
+  }
+
+  if (!balance) {
+    return null // No hay banco conectado
   }
 
   return (
@@ -135,18 +216,29 @@ export function BalanceCard() {
             variant="ghost"
             size="icon"
             onClick={handleSync}
-            disabled={isSyncing}
+            disabled={isSyncing || !canSync}
             className="text-muted-foreground hover:text-foreground"
+            title={canSync ? 'Sincronizar' : 'Espera antes de sincronizar'}
           >
             {isSyncing ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <RefreshCw className="h-4 w-4" />
+              <RefreshCw className={`h-4 w-4 ${!canSync ? 'opacity-50' : ''}`} />
             )}
           </Button>
         </div>
 
-        {balance.lastSyncedAt && (
+        {/* Mensaje de rate limit */}
+        {rateLimitError && (
+          <div className="flex items-start gap-2 mt-3 p-2 rounded-md bg-yellow-500/10 border border-yellow-500/20">
+            <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-yellow-700 dark:text-yellow-300">
+              {rateLimitError}
+            </p>
+          </div>
+        )}
+
+        {balance.lastSyncedAt && !rateLimitError && (
           <p className="text-xs text-muted-foreground mt-3">
             Última sync: {formatRelativeTime(balance.lastSyncedAt)}
           </p>
