@@ -1,23 +1,31 @@
+import { Suspense } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { CURRENCY_SYMBOL } from '@/lib/constants'
 import { getExpenses, getMonthlyStats, getMonthlyHistory } from '@/lib/actions/expenses'
 import { getBudgetSummary } from '@/lib/actions/budgets'
 import { getUserProfile } from '@/lib/auth/actions'
+import { hasBankConnection, getIncomeVsExpensesHistory } from '@/lib/actions/banking'
 import { ExpenseList } from '@/components/expenses'
-import { CategoryChart, MonthlyChart } from '@/components/charts'
+import { CategoryChart, MonthlyChart, IncomeVsExpensesChart } from '@/components/charts'
 import { BudgetAlert } from '@/components/alerts'
 import { BudgetSetup } from '@/components/budgets'
-import { TrendingUp, TrendingDown, Wallet, PieChart } from 'lucide-react'
+import { BalanceCard, MonthlySummaryCards, RecentTransactions } from '@/components/dashboard'
+import { TrendingUp, TrendingDown, Wallet, PieChart, Building2 } from 'lucide-react'
 import Link from 'next/link'
 
 // ==========================================
 // DASHBOARD - PÁGINA PRINCIPAL
+// Vista híbrida: banco conectado vs manual
 // ==========================================
 
 export default async function DashboardPage() {
   const now = new Date()
   const currentYear = now.getFullYear()
   const currentMonth = now.getMonth() + 1
+
+  // Verificar si tiene banco conectado
+  const hasBankConnected = await hasBankConnection()
 
   // Obtener datos en paralelo
   const [
@@ -27,6 +35,7 @@ export default async function DashboardPage() {
     { data: monthlyHistory },
     { data: budgetSummary },
     userProfile,
+    incomeVsExpensesHistory,
   ] = await Promise.all([
     getMonthlyStats(currentYear, currentMonth),
     getMonthlyStats(
@@ -37,6 +46,8 @@ export default async function DashboardPage() {
     getMonthlyHistory(6),
     getBudgetSummary(currentYear, currentMonth),
     getUserProfile(),
+    // Solo obtener datos de ingresos vs gastos si tiene banco conectado
+    hasBankConnected ? getIncomeVsExpensesHistory(6) : Promise.resolve([]),
   ])
 
   // Obtener el primer nombre del usuario
@@ -79,156 +90,287 @@ export default async function DashboardPage() {
         />
       </div>
 
-      {/* Alerta de presupuesto (solo si hay presupuesto configurado) */}
-      {hasBudget && (
-        <BudgetAlert spent={totalSpent} budget={budget} />
-      )}
+      {/* ========================================== */}
+      {/* VISTA CON BANCO CONECTADO                 */}
+      {/* ========================================== */}
+      {hasBankConnected ? (
+        <>
+          {/* Card de saldo actual (prominente) */}
+          <BalanceCard />
 
-      {/* Card principal - Gastos del mes */}
-      <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-            <Wallet className="w-4 h-4" />
-            Gastos este mes
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            <div className="flex items-baseline gap-1">
-              <span className="text-3xl font-bold">
-                {totalSpent.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
-              </span>
-              <span className="text-xl text-muted-foreground">{CURRENCY_SYMBOL}</span>
-            </div>
+          {/* Cards de resumen mensual: Ingresos, Gastos, Balance */}
+          <Suspense fallback={<MonthlySummaryCardsSkeleton />}>
+            <MonthlySummaryCards />
+          </Suspense>
 
-            {/* Barra de progreso del presupuesto (solo si hay presupuesto) */}
-            {hasBudget ? (
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Presupuesto</span>
-                  <span>{percentUsed.toFixed(0)}% de {budget.toLocaleString('es-ES')}{CURRENCY_SYMBOL}</span>
+          {/* Alerta de presupuesto (si lo tiene configurado) */}
+          {hasBudget && (
+            <BudgetAlert spent={totalSpent} budget={budget} />
+          )}
+
+          {/* Progreso del presupuesto (si lo tiene) */}
+          {hasBudget && (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Presupuesto mensual</span>
+                    <span className="font-medium">{percentUsed.toFixed(0)}% de {budget.toLocaleString('es-ES')}{CURRENCY_SYMBOL}</span>
+                  </div>
+                  <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        percentUsed > 100
+                          ? 'bg-destructive'
+                          : percentUsed > 80
+                          ? 'bg-yellow-500'
+                          : 'bg-primary'
+                      }`}
+                      style={{ width: `${Math.min(percentUsed, 100)}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Disponible: {remaining.toLocaleString('es-ES', { minimumFractionDigits: 2 })}{CURRENCY_SYMBOL}
+                  </p>
                 </div>
-                <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${
-                      percentUsed > 100
-                        ? 'bg-destructive'
-                        : percentUsed > 80
-                        ? 'bg-yellow-500'
-                        : 'bg-primary'
-                    }`}
-                    style={{ width: `${Math.min(percentUsed, 100)}%` }}
-                  />
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Configura tu presupuesto para ver el progreso
-              </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Últimos movimientos bancarios */}
+          <Suspense fallback={<RecentTransactionsSkeleton />}>
+            <RecentTransactions />
+          </Suspense>
+
+          {/* Gráficos */}
+          <div className="space-y-4">
+            {/* Gráfico de Ingresos vs Gastos (solo banco conectado) */}
+            {incomeVsExpensesHistory && incomeVsExpensesHistory.length > 0 && (
+              <IncomeVsExpensesChart data={incomeVsExpensesHistory} />
             )}
-
-            {/* Comparación con mes anterior */}
-            {prevTotalSpent > 0 && (
-              <div className="flex items-center gap-1 text-sm">
-                {comparedToLastMonth < 0 ? (
-                  <>
-                    <TrendingDown className="w-4 h-4 text-green-500" />
-                    <span className="text-green-600 dark:text-green-400 font-medium">
-                      {Math.abs(comparedToLastMonth).toFixed(0)}% menos
-                    </span>
-                  </>
-                ) : comparedToLastMonth > 0 ? (
-                  <>
-                    <TrendingUp className="w-4 h-4 text-red-500" />
-                    <span className="text-red-600 dark:text-red-400 font-medium">
-                      {comparedToLastMonth.toFixed(0)}% más
-                    </span>
-                  </>
-                ) : (
-                  <span className="text-muted-foreground">Igual</span>
-                )}
-                <span className="text-muted-foreground">que el mes pasado</span>
-              </div>
+            {currentStats?.byCategory && Object.keys(currentStats.byCategory).length > 0 && (
+              <CategoryChart data={currentStats.byCategory} total={totalSpent} />
+            )}
+            {monthlyHistory && monthlyHistory.length > 0 && (
+              <MonthlyChart data={monthlyHistory} budget={hasBudget ? budget : undefined} />
             )}
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Grid de cards secundarias */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* Disponible este mes (solo si hay presupuesto) */}
-        {hasBudget ? (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                <Wallet className="w-3.5 h-3.5" />
-                Disponible
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className={`text-2xl font-bold ${remaining < 0 ? 'text-destructive' : ''}`}>
-                {remaining.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
-                <span className="text-lg text-muted-foreground">{CURRENCY_SYMBOL}</span>
+        </>
+      ) : (
+        /* ========================================== */
+        /* VISTA SIN BANCO - MODO MANUAL              */
+        /* ========================================== */
+        <>
+          {/* Banner para conectar banco */}
+          <Card className="bg-gradient-to-br from-blue-500/10 to-purple-500/10 border-blue-500/20">
+            <CardContent className="pt-6">
+              <div className="flex items-start gap-4">
+                <div className="p-3 rounded-full bg-blue-500/10">
+                  <Building2 className="h-6 w-6 text-blue-500" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-semibold">Conecta tu banco</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Sincroniza automáticamente tus transacciones y ve tu saldo real.
+                  </p>
+                  <Link
+                    href="/profile"
+                    className="inline-block mt-3 text-sm font-medium text-primary hover:underline"
+                  >
+                    Conectar ahora →
+                  </Link>
+                </div>
               </div>
-              <p className="text-xs text-muted-foreground">Este mes</p>
             </CardContent>
           </Card>
-        ) : (
-          <Card>
+
+          {/* Alerta de presupuesto */}
+          {hasBudget && (
+            <BudgetAlert spent={totalSpent} budget={budget} />
+          )}
+
+          {/* Card principal - Gastos del mes */}
+          <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                <Wallet className="w-3.5 h-3.5" />
-                Presupuesto
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <Wallet className="w-4 h-4" />
+                Gastos este mes
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-lg font-medium text-muted-foreground">Sin configurar</div>
-              <p className="text-xs text-muted-foreground">Pulsa "Presupuesto"</p>
+              <div className="space-y-3">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-3xl font-bold">
+                    {totalSpent.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-xl text-muted-foreground">{CURRENCY_SYMBOL}</span>
+                </div>
+
+                {hasBudget ? (
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Presupuesto</span>
+                      <span>{percentUsed.toFixed(0)}% de {budget.toLocaleString('es-ES')}{CURRENCY_SYMBOL}</span>
+                    </div>
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          percentUsed > 100
+                            ? 'bg-destructive'
+                            : percentUsed > 80
+                            ? 'bg-yellow-500'
+                            : 'bg-primary'
+                        }`}
+                        style={{ width: `${Math.min(percentUsed, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Configura tu presupuesto para ver el progreso
+                  </p>
+                )}
+
+                {prevTotalSpent > 0 && (
+                  <div className="flex items-center gap-1 text-sm">
+                    {comparedToLastMonth < 0 ? (
+                      <>
+                        <TrendingDown className="w-4 h-4 text-green-500" />
+                        <span className="text-green-600 dark:text-green-400 font-medium">
+                          {Math.abs(comparedToLastMonth).toFixed(0)}% menos
+                        </span>
+                      </>
+                    ) : comparedToLastMonth > 0 ? (
+                      <>
+                        <TrendingUp className="w-4 h-4 text-red-500" />
+                        <span className="text-red-600 dark:text-red-400 font-medium">
+                          {comparedToLastMonth.toFixed(0)}% más
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">Igual</span>
+                    )}
+                    <span className="text-muted-foreground">que el mes pasado</span>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
-        )}
 
-        {/* Número de gastos */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-              <PieChart className="w-3.5 h-3.5" />
-              Transacciones
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{currentStats?.count || 0}</div>
-            <p className="text-xs text-muted-foreground">Este mes</p>
+          {/* Grid de cards secundarias */}
+          <div className="grid grid-cols-2 gap-4">
+            {hasBudget ? (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                    <Wallet className="w-3.5 h-3.5" />
+                    Disponible
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className={`text-2xl font-bold ${remaining < 0 ? 'text-destructive' : ''}`}>
+                    {remaining.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+                    <span className="text-lg text-muted-foreground">{CURRENCY_SYMBOL}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Este mes</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                    <Wallet className="w-3.5 h-3.5" />
+                    Presupuesto
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-lg font-medium text-muted-foreground">Sin configurar</div>
+                  <p className="text-xs text-muted-foreground">Pulsa "Presupuesto"</p>
+                </CardContent>
+              </Card>
+            )}
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <PieChart className="w-3.5 h-3.5" />
+                  Transacciones
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{currentStats?.count || 0}</div>
+                <p className="text-xs text-muted-foreground">Este mes</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Gráficos */}
+          <div className="space-y-4">
+            {currentStats?.byCategory && Object.keys(currentStats.byCategory).length > 0 && (
+              <CategoryChart data={currentStats.byCategory} total={totalSpent} />
+            )}
+            {monthlyHistory && monthlyHistory.length > 0 && (
+              <MonthlyChart data={monthlyHistory} budget={hasBudget ? budget : undefined} />
+            )}
+          </div>
+
+          {/* Últimos gastos */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold">Últimos gastos</h2>
+              <Link
+                href="/expenses"
+                className="text-sm text-primary hover:underline"
+              >
+                Ver todos
+              </Link>
+            </div>
+            <ExpenseList expenses={recentExpenses} showUser={false} />
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ==========================================
+// SKELETONS
+// ==========================================
+
+function MonthlySummaryCardsSkeleton() {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {[1, 2, 3].map((i) => (
+        <Card key={i}>
+          <CardContent className="pt-6">
+            <Skeleton className="h-4 w-24 mb-2" />
+            <Skeleton className="h-8 w-32 mb-1" />
+            <Skeleton className="h-3 w-20" />
           </CardContent>
         </Card>
-      </div>
-
-      {/* Gráficos */}
-      <div className="space-y-4">
-        {/* Gráfico de categorías */}
-        {currentStats?.byCategory && Object.keys(currentStats.byCategory).length > 0 && (
-          <CategoryChart data={currentStats.byCategory} total={totalSpent} />
-        )}
-
-        {/* Gráfico de evolución mensual */}
-        {monthlyHistory && monthlyHistory.length > 0 && (
-          <MonthlyChart data={monthlyHistory} budget={hasBudget ? budget : undefined} />
-        )}
-      </div>
-
-      {/* Últimos gastos */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold">Últimos gastos</h2>
-          <Link
-            href="/expenses"
-            className="text-sm text-primary hover:underline"
-          >
-            Ver todos
-          </Link>
-        </div>
-        <ExpenseList expenses={recentExpenses} showUser={false} />
-      </div>
+      ))}
     </div>
+  )
+}
+
+function RecentTransactionsSkeleton() {
+  return (
+    <Card>
+      <CardHeader>
+        <Skeleton className="h-5 w-40" />
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="flex items-center gap-3">
+            <Skeleton className="h-10 w-10 rounded-full" />
+            <div className="flex-1">
+              <Skeleton className="h-4 w-32 mb-1" />
+              <Skeleton className="h-3 w-20" />
+            </div>
+            <Skeleton className="h-4 w-16" />
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   )
 }

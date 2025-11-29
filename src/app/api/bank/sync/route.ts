@@ -20,7 +20,8 @@ import type { SyncResult } from '@/lib/enablebanking/types'
 
 // ==========================================
 // POST /api/bank/sync
-// Sincroniza transacciones bancarias e importa como gastos
+// Sincroniza TODAS las transacciones bancarias (gastos e ingresos)
+// Solo los gastos se importan automáticamente como expenses
 // ==========================================
 
 export async function POST(request: NextRequest) {
@@ -114,12 +115,13 @@ export async function POST(request: NextRequest) {
 
       // Procesar cada cuenta
       for (const account of accounts) {
-        const result: SyncResult = {
+        const result: SyncResult & { incomesNew: number } = {
           accountId: account.id,
           accountName: account.name || account.iban || 'Cuenta sin nombre',
           transactionsFetched: 0,
           transactionsNew: 0,
           expensesCreated: 0,
+          incomesNew: 0,
           errors: [],
         }
 
@@ -147,12 +149,13 @@ export async function POST(request: NextRequest) {
 
           result.transactionsNew = newTransactions.length
 
-          // Procesar cada transacción nueva
+          // Procesar cada transacción nueva (gastos E ingresos)
           for (const tx of newTransactions) {
             const externalId = getTransactionExternalId(tx)
-            const isExp = isExpense(tx)
+            const isExp = isExpense(tx) // amount < 0
+            const isIncome = !isExp // amount >= 0
 
-            // Guardar transacción raw
+            // Guardar TODAS las transacciones (gastos e ingresos)
             const [savedTx] = await db
               .insert(bankTransactions)
               .values({
@@ -166,7 +169,7 @@ export async function POST(request: NextRequest) {
                 description: tx.remittanceInformationUnstructured || tx.additionalInformation,
                 merchantCode: tx.merchantCategoryCode,
                 rawData: tx,
-                isProcessed: isExp, // Solo procesamos gastos
+                isProcessed: isExp, // Solo marcamos gastos como procesados (creamos expense)
               })
               .returning()
 
@@ -195,6 +198,11 @@ export async function POST(request: NextRequest) {
                 .where(eq(bankTransactions.id, savedTx.id))
 
               result.expensesCreated++
+            }
+
+            // Contar ingresos para el reporte
+            if (isIncome) {
+              result.incomesNew++
             }
           }
 
@@ -228,11 +236,12 @@ export async function POST(request: NextRequest) {
         .where(eq(bankConnections.id, conn.id))
     }
 
-    // Calcular totales
+    // Calcular totales (incluyendo ingresos)
     const totals = {
       transactionsFetched: results.reduce((sum, r) => sum + r.transactionsFetched, 0),
       transactionsNew: results.reduce((sum, r) => sum + r.transactionsNew, 0),
       expensesCreated: results.reduce((sum, r) => sum + r.expensesCreated, 0),
+      incomesNew: results.reduce((sum, r) => sum + ((r as { incomesNew?: number }).incomesNew || 0), 0),
       accountsSynced: results.length,
       errors: results.flatMap(r => r.errors || []),
     }
