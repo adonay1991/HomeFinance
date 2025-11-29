@@ -50,8 +50,8 @@ export async function POST(request: NextRequest) {
     })
 
     // Construir URL de callback
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-    const redirectUrl = `${appUrl}/api/bank/callback`
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
+    const redirectUrl = `${siteUrl}/api/bank/callback`
 
     // Obtener IP del usuario (para algunos bancos que lo requieren)
     const forwarded = request.headers.get('x-forwarded-for')
