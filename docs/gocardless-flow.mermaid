@@ -1,0 +1,71 @@
+---
+title: Flujo de Integración GoCardless + Next.js
+---
+
+sequenceDiagram
+    participant U as 👤 Usuario
+    participant F as 🖥️ Frontend<br/>(React)
+    participant B as ⚙️ API Routes<br/>(Next.js Server)
+    participant DB as 🗄️ Base de Datos<br/>(Supabase/SQLite)
+    participant GC as 🏦 GoCardless API
+    participant Bank as 🏛️ Openbank
+
+    Note over U,Bank: 🔐 FASE 1: Conexión Inicial (Una vez cada 90 días)
+    
+    U->>F: Click "Conectar banco"
+    F->>B: POST /api/bank/connect
+    B->>GC: POST /requisitions<br/>(institution_id: OPENBANK)
+    GC-->>B: { link: "https://ob.gocardless...", requisition_id }
+    B->>DB: Guardar requisition_id (pendiente)
+    B-->>F: { redirect_url }
+    F->>U: Redirigir a GoCardless
+    
+    U->>GC: Abrir link de autorización
+    GC->>Bank: Redirigir a login Openbank
+    U->>Bank: Login + Autorizar acceso
+    Bank-->>GC: Autorización OK
+    GC-->>U: Redirigir a /api/bank/callback
+    
+    U->>B: GET /api/bank/callback?ref=xxx
+    B->>GC: GET /requisitions/{id}
+    GC-->>B: { accounts: ["acc_123"], status: "LN" }
+    B->>DB: Actualizar requisition (linked)<br/>Guardar account_ids
+    B-->>F: Redirigir a /dashboard ✅
+
+    Note over U,Bank: 🔄 FASE 2: Consulta de Datos (Día a día)
+
+    U->>F: Abrir app / Dashboard
+    F->>B: GET /api/transactions
+    
+    B->>DB: Obtener access_token
+    
+    alt Token expirado (>24h)
+        B->>GC: POST /token/new<br/>(secret_id, secret_key)
+        GC-->>B: { access_token, expires_in }
+        B->>DB: Guardar nuevo token
+    end
+    
+    B->>GC: GET /accounts/{id}/transactions<br/>Header: Authorization: Bearer {token}
+    GC-->>B: { transactions: [...] }
+    
+    opt Guardar histórico
+        B->>DB: Insertar nuevas transacciones
+    end
+    
+    B-->>F: { transactions: [...] }
+    F->>U: Mostrar gastos 📊
+
+    Note over U,Bank: ⏰ FASE 3: Renovación (Cada 90 días)
+
+    U->>F: Abrir app
+    F->>B: GET /api/bank/status
+    B->>DB: Verificar fecha de conexión
+    
+    alt Conexión expirada o próxima a expirar
+        B-->>F: { status: "expired" }
+        F->>U: Mostrar aviso:<br/>"Reconecta tu banco"
+        Note over U,Bank: Volver a FASE 1
+    else Conexión válida
+        B-->>F: { status: "active", days_left: 45 }
+        F->>U: Todo OK ✅
+    end
