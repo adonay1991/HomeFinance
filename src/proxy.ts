@@ -9,7 +9,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 // Se ejecuta antes de cada request.
 
 // Rutas públicas que no requieren autenticación
-const publicRoutes = ['/login', '/auth/callback', '/offline']
+const publicRoutes = ['/login', '/reset-password', '/auth/callback', '/offline']
 
 // Rutas que siempre deben ser accesibles (assets, API, etc.)
 const ignoredRoutes = ['/_next', '/api', '/favicon.ico', '/manifest.json', '/icons', '/sw.js']
@@ -59,7 +59,8 @@ export async function proxy(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   // Si es ruta pública y el usuario está autenticado, redirigir al dashboard
-  if (publicRoutes.includes(pathname) && user) {
+  // Excepción: /reset-password siempre debe ser accesible (para recovery flow)
+  if (publicRoutes.includes(pathname) && user && pathname !== '/reset-password') {
     return NextResponse.redirect(new URL('/', request.url))
   }
 
