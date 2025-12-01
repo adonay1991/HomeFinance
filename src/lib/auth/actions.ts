@@ -104,8 +104,8 @@ export async function signOut() {
 }
 
 /**
- * Envía un código OTP de 6 dígitos al email para restablecer la contraseña.
- * Usa signInWithOtp con shouldCreateUser: false para no crear usuarios nuevos.
+ * Genera y envía un código OTP de 6 dígitos al email para restablecer la contraseña.
+ * Usamos Resend para enviar el email con el código.
  */
 export async function sendPasswordResetOtp(email: string) {
   if (!email) {
@@ -113,28 +113,58 @@ export async function sendPasswordResetOtp(email: string) {
   }
 
   const supabase = await createClient()
+  const normalizedEmail = email.toLowerCase().trim()
 
-  // Usar signInWithOtp para enviar un código de 6 dígitos
-  // shouldCreateUser: false asegura que solo funciona para usuarios existentes
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: {
-      shouldCreateUser: false,
-    },
-  })
+  // Verificar que el usuario existe en auth.users via nuestra tabla users
+  const { data: userData } = await supabase
+    .from('users')
+    .select('id, email')
+    .eq('email', normalizedEmail)
+    .single()
 
-  if (error) {
-    console.error('[Auth] Send OTP error:', error)
-    // No revelar si el usuario existe o no
-    if (error.message.includes('Signups not allowed')) {
-      // Este error indica que el usuario no existe, pero no lo revelamos
-      return {
-        success: true,
-        message: 'Si el email está registrado, recibirás un código de 6 dígitos.'
-      }
+  // Siempre devolver éxito para no revelar si el email existe
+  if (!userData) {
+    console.log('[Auth] Reset OTP requested for non-existent email:', normalizedEmail)
+    return {
+      success: true,
+      message: 'Si el email está registrado, recibirás un código de 6 dígitos.'
     }
-    return { error: 'Error al enviar el código. Intenta de nuevo.' }
   }
+
+  // Generar código de 6 dígitos
+  const code = Math.floor(100000 + Math.random() * 900000).toString()
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000) // 10 minutos
+
+  // Invalidar códigos anteriores para este email
+  await supabase
+    .from('password_reset_codes')
+    .delete()
+    .eq('email', normalizedEmail)
+
+  // Guardar nuevo código
+  const { error: insertError } = await supabase
+    .from('password_reset_codes')
+    .insert({
+      email: normalizedEmail,
+      code,
+      expires_at: expiresAt.toISOString(),
+    })
+
+  if (insertError) {
+    console.error('[Auth] Error saving reset code:', insertError)
+    return { error: 'Error al generar el código. Intenta de nuevo.' }
+  }
+
+  // Enviar email con Resend
+  const { sendPasswordResetEmail } = await import('@/lib/email/resend')
+  const emailResult = await sendPasswordResetEmail(normalizedEmail, code)
+
+  if (!emailResult.success) {
+    console.error('[Auth] Error sending reset email:', emailResult.error)
+    return { error: 'Error al enviar el email. Intenta de nuevo.' }
+  }
+
+  console.log('[Auth] Reset code sent to:', normalizedEmail)
 
   return {
     success: true,
@@ -143,8 +173,8 @@ export async function sendPasswordResetOtp(email: string) {
 }
 
 /**
- * Verifica el código OTP y establece la nueva contraseña.
- * Flujo en dos pasos: primero verifica OTP, luego actualiza password.
+ * Verifica el código OTP y establece la nueva contraseña directamente.
+ * Usa la Admin API de Supabase para cambiar la contraseña sin necesidad de links.
  */
 export async function verifyOtpAndSetPassword(
   email: string,
@@ -169,78 +199,60 @@ export async function verifyOtpAndSetPassword(
   }
 
   const supabase = await createClient()
+  const normalizedEmail = email.toLowerCase().trim()
 
-  // Paso 1: Verificar el OTP (esto crea una sesión)
-  const { data, error: verifyError } = await supabase.auth.verifyOtp({
-    email,
-    token: otp,
-    type: 'email',
-  })
+  // Buscar código válido
+  const { data: codeData, error: codeError } = await supabase
+    .from('password_reset_codes')
+    .select('*')
+    .eq('email', normalizedEmail)
+    .eq('code', otp)
+    .is('used_at', null)
+    .gt('expires_at', new Date().toISOString())
+    .single()
 
-  if (verifyError) {
-    console.error('[Auth] Verify OTP error:', verifyError)
-    if (verifyError.message.includes('Invalid') || verifyError.message.includes('expired')) {
-      return { error: 'Código inválido o expirado. Solicita uno nuevo.' }
-    }
-    return { error: verifyError.message }
+  if (codeError || !codeData) {
+    console.error('[Auth] Invalid or expired code:', { email: normalizedEmail, otp, error: codeError })
+    return { error: 'Código inválido o expirado. Solicita uno nuevo.' }
   }
 
-  if (!data.session) {
-    return { error: 'No se pudo verificar el código. Intenta de nuevo.' }
+  // Obtener el user_id de auth.users
+  const { data: userData } = await supabase
+    .from('users')
+    .select('id')
+    .eq('email', normalizedEmail)
+    .single()
+
+  if (!userData) {
+    return { error: 'Usuario no encontrado.' }
   }
 
-  // Paso 2: Actualizar la contraseña
-  const { error: updateError } = await supabase.auth.updateUser({
-    password,
-  })
+  // Usar Admin API para actualizar la contraseña directamente
+  const { createAdminClient } = await import('@/lib/supabase/admin')
+  const adminSupabase = createAdminClient()
+
+  const { error: updateError } = await adminSupabase.auth.admin.updateUserById(
+    userData.id,
+    { password }
+  )
 
   if (updateError) {
-    console.error('[Auth] Update password error:', updateError)
-    return { error: 'No se pudo establecer la contraseña. Intenta de nuevo.' }
+    console.error('[Auth] Error updating password:', updateError)
+    return { error: 'Error al actualizar la contraseña. Intenta de nuevo.' }
   }
 
-  return { success: true }
-}
+  // Marcar código como usado
+  await supabase
+    .from('password_reset_codes')
+    .update({ used_at: new Date().toISOString() })
+    .eq('id', codeData.id)
 
-/**
- * @deprecated Usar sendPasswordResetOtp en su lugar
- */
-export async function sendPasswordResetEmail(formData: FormData) {
-  const email = formData.get('email') as string
-  return sendPasswordResetOtp(email)
-}
+  console.log('[Auth] Password updated successfully for:', normalizedEmail)
 
-/**
- * @deprecated Usar verifyOtpAndSetPassword en su lugar
- */
-export async function updatePassword(formData: FormData) {
-  const password = formData.get('password') as string
-  const confirmPassword = formData.get('confirmPassword') as string
-
-  if (!password) {
-    return { error: 'La contraseña es requerida' }
+  return {
+    success: true,
+    message: '¡Contraseña actualizada! Ya puedes iniciar sesión.'
   }
-
-  if (password.length < 6) {
-    return { error: 'La contraseña debe tener al menos 6 caracteres' }
-  }
-
-  if (password !== confirmPassword) {
-    return { error: 'Las contraseñas no coinciden' }
-  }
-
-  const supabase = await createClient()
-
-  const { error } = await supabase.auth.updateUser({
-    password,
-  })
-
-  if (error) {
-    console.error('[Auth] Update password error:', error)
-    return { error: 'No se pudo actualizar la contraseña.' }
-  }
-
-  redirect('/')
 }
 
 /**

@@ -200,3 +200,22 @@ export type NewBankTransaction = typeof bankTransactions.$inferInsert
 
 export type BankSyncLog = typeof bankSyncLog.$inferSelect
 export type NewBankSyncLog = typeof bankSyncLog.$inferInsert
+
+// ==========================================
+// TABLA: password_reset_codes
+// Códigos OTP para reset de contraseña
+// ==========================================
+export const passwordResetCodes = pgTable('password_reset_codes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  email: text('email').notNull(),
+  code: text('code').notNull(), // Código de 6 dígitos
+  expiresAt: timestamp('expires_at').notNull(),
+  usedAt: timestamp('used_at'), // null = no usado
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('idx_password_reset_codes_email').on(table.email),
+  index('idx_password_reset_codes_expires').on(table.expiresAt),
+])
+
+export type PasswordResetCode = typeof passwordResetCodes.$inferSelect
+export type NewPasswordResetCode = typeof passwordResetCodes.$inferInsert
