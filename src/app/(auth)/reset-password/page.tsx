@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { sendPasswordResetEmail, updatePassword } from '@/lib/auth/actions'
+import { createClient } from '@/lib/supabase/client'
+import { sendPasswordResetEmail } from '@/lib/auth/actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -14,15 +15,56 @@ import { Home, Mail, Lock, Loader2, CheckCircle2, ArrowLeft } from 'lucide-react
 // RESET PASSWORD PAGE
 // Permite solicitar un reset o establecer nueva contraseña
 // ==========================================
+// Supabase envía tokens de recovery en el hash fragment (#access_token=...)
+// Necesitamos procesarlos del lado del cliente
 
 export default function ResetPasswordPage() {
   const searchParams = useSearchParams()
-  // Si viene con ?mode=update, significa que el usuario hizo clic en el email
-  const isUpdateMode = searchParams.get('mode') === 'update'
+  const router = useRouter()
 
+  const [isUpdateMode, setIsUpdateMode] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [isPending, setIsPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+
+  // Procesar tokens de Supabase al cargar la página
+  useEffect(() => {
+    async function handleRecoveryToken() {
+      // Verificar si viene con mode=update (del redirect de Supabase)
+      const mode = searchParams.get('mode')
+
+      if (mode === 'update') {
+        // Supabase debería haber establecido la sesión automáticamente
+        // a través del hash fragment (#access_token=...)
+        const supabase = createClient()
+
+        // Verificar si hay una sesión activa
+        const { data: { session } } = await supabase.auth.getSession()
+
+        if (session) {
+          setIsUpdateMode(true)
+        } else {
+          // Intentar obtener sesión del hash fragment
+          // Supabase client lo hace automáticamente, pero puede tomar un momento
+          const { data, error } = await supabase.auth.getSession()
+
+          if (data.session) {
+            setIsUpdateMode(true)
+          } else {
+            // No hay sesión - el enlace puede haber expirado
+            setError('El enlace ha expirado o es inválido. Solicita uno nuevo.')
+          }
+        }
+      }
+
+      setIsLoading(false)
+    }
+
+    // Pequeño delay para permitir que Supabase procese el hash
+    const timer = setTimeout(handleRecoveryToken, 500)
+    return () => clearTimeout(timer)
+  }, [searchParams])
 
   async function handleRequestReset(formData: FormData) {
     setIsPending(true)
@@ -40,17 +82,55 @@ export default function ResetPasswordPage() {
   }
 
   async function handleUpdatePassword(formData: FormData) {
+    const password = formData.get('password') as string
+    const confirmPassword = formData.get('confirmPassword') as string
+
+    if (!password) {
+      setError('La contraseña es requerida')
+      return
+    }
+
+    if (password.length < 6) {
+      setError('La contraseña debe tener al menos 6 caracteres')
+      return
+    }
+
+    if (password !== confirmPassword) {
+      setError('Las contraseñas no coinciden')
+      return
+    }
+
     setIsPending(true)
     setError(null)
 
-    const result = await updatePassword(formData)
+    const supabase = createClient()
 
-    setIsPending(false)
+    const { error: updateError } = await supabase.auth.updateUser({
+      password,
+    })
 
-    if (result?.error) {
-      setError(result.error)
+    if (updateError) {
+      console.error('[ResetPassword] Update error:', updateError)
+      setError('No se pudo actualizar la contraseña. Intenta solicitar un nuevo enlace.')
+      setIsPending(false)
+      return
     }
-    // Si no hay error, el redirect ya ocurrió
+
+    // Éxito - redirigir al dashboard
+    router.push('/')
+    router.refresh()
+  }
+
+  // Mostrar loading mientras procesamos tokens
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-to-b from-background to-muted/50">
+        <div className="flex items-center gap-2">
+          <Loader2 className="w-5 h-5 animate-spin text-primary" />
+          <span className="text-muted-foreground">Cargando...</span>
+        </div>
+      </div>
+    )
   }
 
   return (

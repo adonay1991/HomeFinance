@@ -120,8 +120,10 @@ export async function sendPasswordResetEmail(formData: FormData) {
     || process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`
     || 'http://localhost:3000'
 
+  // Redirigir directamente a reset-password con mode=update
+  // Supabase añadirá los tokens necesarios a la URL
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${siteUrl}/auth/callback?type=recovery`,
+    redirectTo: `${siteUrl}/reset-password?mode=update`,
   })
 
   if (error) {
