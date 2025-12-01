@@ -1,159 +1,193 @@
 'use client'
 
 import { createClient } from '@/lib/supabase/client'
+import {
+  saveCredentials,
+  getCredentials,
+  hasStoredCredentials,
+  clearCredentials,
+  clearAllSecureStorage,
+  type StoredCredentials
+} from './secure-storage'
 import { enableBiometric, disableBiometric } from './webauthn'
 
 // ==========================================
-// FUNCIONES DE PASSKEY / WEBAUTHN
-// Usando la API de MFA de Supabase para WebAuthn
+// BIOMETRIC AUTH - AUTENTICACIÓN BIOMÉTRICA
+// ==========================================
+// Usa WebAuthn para verificar biometría localmente
+// y credenciales encriptadas para hacer auto-login
+
+// ID del Relying Party (dominio de la app)
+const RP_ID = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
+const RP_NAME = 'HomeFinance'
+
+// Key para guardar el credential ID en localStorage
+const CREDENTIAL_ID_KEY = 'homefinance_webauthn_credential_id'
+
+/**
+ * Obtiene el credential ID guardado
+ */
+function getCredentialId(): string | null {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem(CREDENTIAL_ID_KEY)
+}
+
+/**
+ * Guarda el credential ID
+ */
+function setCredentialId(credentialId: string): void {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(CREDENTIAL_ID_KEY, credentialId)
+}
+
+/**
+ * Elimina el credential ID
+ */
+function clearCredentialId(): void {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem(CREDENTIAL_ID_KEY)
+}
+
+/**
+ * Genera un challenge aleatorio para WebAuthn
+ */
+function generateChallenge(): ArrayBuffer {
+  const array = new Uint8Array(32)
+  crypto.getRandomValues(array)
+  return array.buffer as ArrayBuffer
+}
+
+/**
+ * Convierte ArrayBuffer a base64
+ */
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+}
+
+/**
+ * Convierte base64 a ArrayBuffer
+ */
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0))
+  return bytes.buffer as ArrayBuffer
+}
+
+/**
+ * Obtiene un nombre descriptivo del dispositivo
+ */
+function getBiometricDeviceName(): string {
+  if (typeof window === 'undefined') return 'Dispositivo'
+
+  const ua = navigator.userAgent.toLowerCase()
+
+  if (/iphone/.test(ua)) return 'iPhone'
+  if (/ipad/.test(ua)) return 'iPad'
+  if (/android/.test(ua)) return 'Android'
+  if (/macintosh/.test(ua)) return 'Mac'
+  if (/windows/.test(ua)) return 'Windows'
+
+  return 'Dispositivo'
+}
+
+/**
+ * Genera un user ID único para WebAuthn
+ */
+function generateUserId(): ArrayBuffer {
+  // Usar un ID fijo basado en el dispositivo para poder re-usar la credencial
+  const deviceId = localStorage.getItem('homefinance_device_id') || crypto.randomUUID()
+  localStorage.setItem('homefinance_device_id', deviceId)
+
+  const encoder = new TextEncoder()
+  const encoded = encoder.encode(deviceId)
+  return encoded.buffer as ArrayBuffer
+}
+
+// ==========================================
+// REGISTRO DE BIOMETRÍA
 // ==========================================
 
-// Factor ID guardado en localStorage
-const FACTOR_ID_KEY = 'homefinance_webauthn_factor_id'
-
 /**
- * Obtiene el factor ID guardado
- */
-function getFactorId(): string | null {
-  if (typeof window === 'undefined') return null
-  return localStorage.getItem(FACTOR_ID_KEY)
-}
-
-/**
- * Guarda el factor ID
- */
-function setFactorId(factorId: string): void {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(FACTOR_ID_KEY, factorId)
-}
-
-/**
- * Elimina el factor ID
- */
-function clearFactorId(): void {
-  if (typeof window === 'undefined') return
-  localStorage.removeItem(FACTOR_ID_KEY)
-}
-
-/**
- * Registra una nueva credencial biométrica (passkey) para el usuario actual.
- * Esto permite verificar la identidad con Face ID / Touch ID / Huella.
+ * Registra una nueva credencial biométrica y guarda las credenciales del usuario.
  *
- * NOTA: En Supabase, WebAuthn funciona como un segundo factor (MFA).
- * El usuario primero debe estar autenticado con email/password.
+ * Flujo:
+ * 1. Crear credencial WebAuthn (muestra Face ID / Touch ID)
+ * 2. Guardar email/password encriptados en IndexedDB
+ * 3. Guardar credential ID para futuros logins
  */
-export async function registerPasskey(): Promise<{
+export async function registerPasskey(credentials: StoredCredentials): Promise<{
   success: boolean
   error?: string
-  factorId?: string
 }> {
   try {
-    const supabase = createClient()
-
-    // Verificar que el usuario está autenticado
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return { success: false, error: 'Debes iniciar sesión primero' }
+    // Verificar que WebAuthn está soportado
+    if (!window.PublicKeyCredential) {
+      return { success: false, error: 'Tu dispositivo no soporta autenticación biométrica' }
     }
 
-    // 1. Enrollar el factor WebAuthn
-    const { data: enrollData, error: enrollError } = await supabase.auth.mfa.enroll({
-      factorType: 'webauthn',
-      friendlyName: `${getBiometricDeviceName()} - HomeFinance`,
-    })
-
-    if (enrollError) {
-      console.error('[Passkey] Enroll error:', enrollError)
-      return {
-        success: false,
-        error: translatePasskeyError(enrollError.message)
-      }
+    // Verificar que hay autenticador disponible (Face ID, Touch ID, etc.)
+    const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+    if (!available) {
+      return { success: false, error: 'No se detectó Face ID, Touch ID u otra biometría' }
     }
 
-    if (!enrollData) {
-      return { success: false, error: 'No se pudo registrar la biometría' }
+    const userId = generateUserId()
+    const challenge = generateChallenge()
+
+    // Opciones para crear la credencial
+    const createOptions: PublicKeyCredentialCreationOptions = {
+      challenge,
+      rp: {
+        id: RP_ID,
+        name: RP_NAME,
+      },
+      user: {
+        id: userId,
+        name: credentials.email,
+        displayName: `HomeFinance - ${getBiometricDeviceName()}`,
+      },
+      pubKeyCredParams: [
+        { alg: -7, type: 'public-key' },   // ES256
+        { alg: -257, type: 'public-key' }, // RS256
+      ],
+      authenticatorSelection: {
+        authenticatorAttachment: 'platform', // Solo biometría del dispositivo
+        userVerification: 'required',        // Requiere Face ID / Touch ID
+        residentKey: 'preferred',
+      },
+      timeout: 60000,
+      attestation: 'none', // No necesitamos attestation para uso local
     }
 
-    // 2. Obtener challenge para la verificación
-    const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({
-      factorId: enrollData.id,
-    })
-
-    if (challengeError || !challengeData) {
-      console.error('[Passkey] Challenge error:', challengeError)
-      return {
-        success: false,
-        error: translatePasskeyError(challengeError?.message || 'Error al obtener challenge')
-      }
-    }
-
-    // 3. Crear credencial en el navegador (esto muestra Face ID / Touch ID)
-    // NOTA: Esta parte requiere que Supabase devuelva las opciones de WebAuthn
-    // Si el servidor no devuelve webauthn options, significa que la feature no está habilitada
-
-    // Verificar si hay opciones de WebAuthn
-    const webauthnData = challengeData as { webauthn?: { credential_options?: { publicKey?: PublicKeyCredentialCreationOptions } } }
-
-    if (!webauthnData.webauthn?.credential_options?.publicKey) {
-      // WebAuthn no está habilitado en Supabase
-      // Desenrollar el factor que acabamos de crear
-      await supabase.auth.mfa.unenroll({ factorId: enrollData.id })
-
-      return {
-        success: false,
-        error: 'WebAuthn no está habilitado en Supabase. Habilítalo en el dashboard.'
-      }
-    }
-
-    const publicKeyOptions = webauthnData.webauthn.credential_options.publicKey
-
+    // Crear credencial - esto muestra Face ID / Touch ID
     const credential = await navigator.credentials.create({
-      publicKey: publicKeyOptions
+      publicKey: createOptions
     }) as PublicKeyCredential | null
 
     if (!credential) {
-      // Usuario canceló
-      await supabase.auth.mfa.unenroll({ factorId: enrollData.id })
       return { success: false, error: 'Registro cancelado' }
     }
 
-    // 4. Verificar la credencial con Supabase
-    const response = credential.response as AuthenticatorAttestationResponse
+    // Guardar el credential ID para futuros logins
+    const credentialId = arrayBufferToBase64(credential.rawId)
+    setCredentialId(credentialId)
 
-    const { error: verifyError } = await supabase.auth.mfa.verify({
-      factorId: enrollData.id,
-      challengeId: challengeData.id,
-      code: '', // No se usa para WebAuthn
-    })
+    // Guardar las credenciales encriptadas
+    await saveCredentials(credentials)
 
-    if (verifyError) {
-      console.error('[Passkey] Verify error:', verifyError)
-      await supabase.auth.mfa.unenroll({ factorId: enrollData.id })
-      return {
-        success: false,
-        error: translatePasskeyError(verifyError.message)
-      }
-    }
+    // Marcar biometría como habilitada
+    enableBiometric(credentialId)
 
-    // Éxito - guardar el factor ID y marcar como habilitado
-    setFactorId(enrollData.id)
-    enableBiometric(credential.id)
-
-    return {
-      success: true,
-      factorId: enrollData.id
-    }
+    return { success: true }
 
   } catch (err) {
     console.error('[Passkey] Registration error:', err)
 
-    // Manejar errores específicos de WebAuthn
     if (err instanceof DOMException) {
       if (err.name === 'NotAllowedError') {
         return { success: false, error: 'Autenticación cancelada o no permitida' }
       }
       if (err.name === 'InvalidStateError') {
-        return { success: false, error: 'Ya tienes una credencial registrada en este dispositivo' }
+        return { success: false, error: 'Ya tienes una credencial registrada. Desactívala primero.' }
       }
       if (err.name === 'NotSupportedError') {
         return { success: false, error: 'Tu dispositivo no soporta esta función' }
@@ -167,88 +201,97 @@ export async function registerPasskey(): Promise<{
   }
 }
 
+// ==========================================
+// LOGIN CON BIOMETRÍA
+// ==========================================
+
 /**
- * Verifica la identidad usando passkey (Face ID / Touch ID / Huella).
- * NOTA: En el modelo de Supabase MFA, esto verifica un segundo factor,
- * no reemplaza el login principal.
+ * Verifica biometría y hace login automático con las credenciales guardadas.
  *
- * Para una experiencia de "login con biometría", necesitamos:
- * 1. Guardar las credenciales de forma segura (KeyChain/KeyStore)
- * 2. Usar la biometría para desbloquear esas credenciales
- * 3. Hacer login automático con email/password guardados
- *
- * Esta función es un placeholder para cuando Supabase soporte
- * passkeys como método de login principal.
+ * Flujo:
+ * 1. Verificar biometría con WebAuthn (Face ID / Touch ID)
+ * 2. Si pasa, recuperar credenciales encriptadas
+ * 3. Hacer login con email/password en Supabase
  */
 export async function signInWithPasskey(): Promise<{
   success: boolean
   error?: string
 }> {
   try {
-    const factorId = getFactorId()
+    const credentialId = getCredentialId()
 
-    if (!factorId) {
+    if (!credentialId) {
       return {
         success: false,
         error: 'No hay biometría configurada. Configúrala primero.'
       }
     }
 
-    const supabase = createClient()
-
-    // Verificar sesión actual
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      // Si no hay sesión, no podemos usar MFA
-      // Necesitaríamos primero hacer login con email/password
+    // Verificar que hay credenciales guardadas
+    const hasCredentials = await hasStoredCredentials()
+    if (!hasCredentials) {
       return {
         success: false,
-        error: 'Inicia sesión primero con email y contraseña'
+        error: 'No hay credenciales guardadas. Inicia sesión con email primero.'
       }
     }
 
-    // Obtener challenge
-    const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({
-      factorId,
-    })
+    const challenge = generateChallenge()
 
-    if (challengeError || !challengeData) {
-      return {
-        success: false,
-        error: translatePasskeyError(challengeError?.message || 'Error al verificar')
-      }
+    // Opciones para verificar la credencial
+    const getOptions: PublicKeyCredentialRequestOptions = {
+      challenge,
+      rpId: RP_ID,
+      allowCredentials: [{
+        id: base64ToArrayBuffer(credentialId),
+        type: 'public-key',
+        transports: ['internal'], // Solo autenticador del dispositivo
+      }],
+      userVerification: 'required', // Requiere Face ID / Touch ID
+      timeout: 60000,
     }
 
-    // Verificar si hay opciones de WebAuthn
-    const webauthnData = challengeData as { webauthn?: { credential_options?: { publicKey?: PublicKeyCredentialRequestOptions } } }
-
-    if (!webauthnData.webauthn?.credential_options?.publicKey) {
-      return {
-        success: false,
-        error: 'WebAuthn no está habilitado'
-      }
-    }
-
-    // Obtener credencial del navegador (muestra Face ID / Touch ID)
-    const credential = await navigator.credentials.get({
-      publicKey: webauthnData.webauthn.credential_options.publicKey
+    // Verificar credencial - esto muestra Face ID / Touch ID
+    const assertion = await navigator.credentials.get({
+      publicKey: getOptions
     }) as PublicKeyCredential | null
 
-    if (!credential) {
+    if (!assertion) {
       return { success: false, error: 'Verificación cancelada' }
     }
 
-    // Verificar con Supabase
-    const { error: verifyError } = await supabase.auth.mfa.verify({
-      factorId,
-      challengeId: challengeData.id,
-      code: '', // No se usa para WebAuthn
-    })
+    // Biometría verificada! Ahora recuperar credenciales y hacer login
+    const credentials = await getCredentials()
 
-    if (verifyError) {
+    if (!credentials) {
       return {
         success: false,
-        error: translatePasskeyError(verifyError.message)
+        error: 'No se pudieron recuperar las credenciales'
+      }
+    }
+
+    // Hacer login en Supabase
+    const supabase = createClient()
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: credentials.email,
+      password: credentials.password,
+    })
+
+    if (signInError) {
+      // Si las credenciales ya no son válidas, limpiar todo
+      if (signInError.message.includes('Invalid login credentials')) {
+        await clearCredentials()
+        clearCredentialId()
+        disableBiometric()
+        return {
+          success: false,
+          error: 'Las credenciales han cambiado. Inicia sesión con email y reactiva la biometría.'
+        }
+      }
+
+      return {
+        success: false,
+        error: translateError(signInError.message)
       }
     }
 
@@ -273,22 +316,25 @@ export async function signInWithPasskey(): Promise<{
   }
 }
 
+// ==========================================
+// ELIMINAR BIOMETRÍA
+// ==========================================
+
 /**
- * Elimina la configuración de passkey del usuario
+ * Elimina la configuración de biometría y credenciales guardadas
  */
 export async function removePasskey(): Promise<{
   success: boolean
   error?: string
 }> {
   try {
-    const factorId = getFactorId()
+    // Limpiar credenciales encriptadas
+    await clearAllSecureStorage()
 
-    if (factorId) {
-      const supabase = createClient()
-      await supabase.auth.mfa.unenroll({ factorId })
-    }
+    // Limpiar credential ID
+    clearCredentialId()
 
-    clearFactorId()
+    // Marcar biometría como deshabilitada
     disableBiometric()
 
     return { success: true }
@@ -302,38 +348,20 @@ export async function removePasskey(): Promise<{
   }
 }
 
-/**
- * Obtiene un nombre descriptivo del dispositivo
- */
-function getBiometricDeviceName(): string {
-  if (typeof window === 'undefined') return 'Dispositivo'
-
-  const ua = navigator.userAgent.toLowerCase()
-
-  if (/iphone/.test(ua)) return 'iPhone'
-  if (/ipad/.test(ua)) return 'iPad'
-  if (/android/.test(ua)) return 'Android'
-  if (/macintosh/.test(ua)) return 'Mac'
-  if (/windows/.test(ua)) return 'Windows'
-
-  return 'Dispositivo'
-}
+// ==========================================
+// HELPERS
+// ==========================================
 
 /**
- * Traduce mensajes de error de Supabase/WebAuthn a español
+ * Traduce mensajes de error a español
  */
-function translatePasskeyError(message: string): string {
+function translateError(message: string): string {
   const errorMap: Record<string, string> = {
+    'Invalid login credentials': 'Credenciales inválidas',
+    'Email not confirmed': 'Email no confirmado',
     'User not found': 'Usuario no encontrado',
-    'Invalid credentials': 'Credencial inválida',
-    'Passkey not found': 'No se encontró la credencial biométrica',
-    'Registration failed': 'No se pudo registrar la biometría',
-    'Authentication failed': 'No se pudo autenticar',
+    'Network error': 'Error de conexión',
     'Rate limit exceeded': 'Demasiados intentos. Espera un momento.',
-    'Network error': 'Error de conexión. Verifica tu internet.',
-    'Factor not found': 'Biometría no configurada',
-    'MFA not enabled': 'MFA no está habilitado',
-    'webauthn not enabled': 'WebAuthn no está habilitado en Supabase',
   }
 
   for (const [key, value] of Object.entries(errorMap)) {
