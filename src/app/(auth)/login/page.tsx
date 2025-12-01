@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Home, Mail, Lock, User, Loader2, CheckCircle2, Zap } from 'lucide-react'
 import { BiometricLoginButton } from '@/components/auth/biometric-login-button'
+import { saveTempCredentials } from '@/components/auth/biometric-activation-handler'
 import {
   isWebAuthnSupported,
   hasBiometricCredential,
@@ -49,10 +50,18 @@ export default function LoginPage() {
     setError(null)
     setSuccessMessage(null)
 
-    // Guardar email para futuros logins
     const email = formData.get('email') as string
+    const password = formData.get('password') as string
+
+    // Guardar email para futuros logins
     if (email) {
       saveLastEmail(email)
+    }
+
+    // ✨ IMPORTANTE: Guardar credenciales temporalmente ANTES del redirect
+    // Esto permite mostrar el prompt de biometría después del login exitoso
+    if (email && password) {
+      saveTempCredentials({ email, password })
     }
 
     const result = await signInWithPassword(formData)

@@ -13,16 +13,19 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Loader2, Fingerprint, ScanFace, Smartphone } from 'lucide-react'
 import { getBiometricType, getBiometricName, dismissBiometricPrompt } from '@/lib/auth/webauthn'
 import { registerPasskey } from '@/lib/auth/passkey'
+import type { StoredCredentials } from '@/lib/auth/secure-storage'
 
 // ==========================================
 // BIOMETRIC PROMPT
 // Modal para activar Face ID / Touch ID / Huella
-// Se muestra después del primer login
+// Se muestra después del primer login exitoso
 // ==========================================
 
 interface BiometricPromptProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Credenciales del usuario para guardar (requerido para activar) */
+  credentials?: StoredCredentials | null
   onSuccess?: () => void
   onDismiss?: () => void
 }
@@ -30,6 +33,7 @@ interface BiometricPromptProps {
 export function BiometricPrompt({
   open,
   onOpenChange,
+  credentials,
   onSuccess,
   onDismiss,
 }: BiometricPromptProps) {
@@ -46,10 +50,16 @@ export function BiometricPrompt({
       Smartphone
 
   async function handleActivate() {
+    // Verificar que tenemos credenciales
+    if (!credentials?.email || !credentials?.password) {
+      setError('No se encontraron credenciales para guardar')
+      return
+    }
+
     setIsLoading(true)
     setError(null)
 
-    const result = await registerPasskey()
+    const result = await registerPasskey(credentials)
 
     setIsLoading(false)
 
@@ -96,7 +106,7 @@ export function BiometricPrompt({
           <div className="space-y-3">
             <Button
               onClick={handleActivate}
-              disabled={isLoading}
+              disabled={isLoading || !credentials}
               className="w-full"
               size="lg"
             >
