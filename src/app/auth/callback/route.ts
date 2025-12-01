@@ -37,13 +37,17 @@ export async function GET(request: Request) {
     const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
 
     if (!exchangeError && data.session) {
-      // Verificar si es una sesión de recovery
-      // El usuario tendrá un aal (authenticator assurance level) específico
-      // o podemos verificar si el type indica recovery
-      const isRecovery = type === 'recovery' || type === 'email'
+      // Detectar si es recovery usando AMR (Authentication Methods Reference)
+      // Supabase NO pasa type=recovery en el redirect después del PKCE exchange,
+      // pero sí incluye el método de autenticación en session.user.amr
+      const amr = data.session.user?.amr || []
+      const isRecoveryByAMR = amr.some((m: { method: string }) => m.method === 'recovery')
 
-      if (isRecovery) {
-        console.log('[Auth Callback] Recovery flow detected, redirecting to reset-password')
+      // También verificar por si el type viene en la URL (para otros flujos)
+      const isRecoveryByType = type === 'recovery' || type === 'email'
+
+      if (isRecoveryByAMR || isRecoveryByType) {
+        console.log('[Auth Callback] Recovery flow detected via AMR:', { amr, type })
         return NextResponse.redirect(`${origin}/reset-password?mode=update`)
       }
 
