@@ -40,8 +40,10 @@ export async function GET(request: Request) {
       // Detectar si es recovery usando AMR (Authentication Methods Reference)
       // Supabase NO pasa type=recovery en el redirect después del PKCE exchange,
       // pero sí incluye el método de autenticación en session.user.amr
-      const amr = data.session.user?.amr || []
-      const isRecoveryByAMR = amr.some((m: { method: string }) => m.method === 'recovery')
+      // Nota: amr existe en runtime pero no está en los tipos de Supabase
+      const user = data.session.user as { amr?: Array<{ method: string }> }
+      const amr = user.amr || []
+      const isRecoveryByAMR = amr.some((m) => m.method === 'recovery')
 
       // También verificar por si el type viene en la URL (para otros flujos)
       const isRecoveryByType = type === 'recovery' || type === 'email'
