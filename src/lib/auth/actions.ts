@@ -104,6 +104,73 @@ export async function signOut() {
 }
 
 /**
+ * Envía un email para restablecer la contraseña.
+ * Funciona tanto para usuarios nuevos (Magic Link) como existentes.
+ */
+export async function sendPasswordResetEmail(formData: FormData) {
+  const email = formData.get('email') as string
+
+  if (!email) {
+    return { error: 'Email es requerido' }
+  }
+
+  const supabase = await createClient()
+
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
+    || process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`
+    || 'http://localhost:3000'
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${siteUrl}/auth/callback?type=recovery`,
+  })
+
+  if (error) {
+    // No revelar si el email existe o no (seguridad)
+    console.error('[Auth] Reset password error:', error)
+  }
+
+  // Siempre devolver éxito para no revelar si el email existe
+  return {
+    success: true,
+    message: 'Si el email existe, recibirás un enlace para establecer tu contraseña.'
+  }
+}
+
+/**
+ * Actualiza la contraseña del usuario actual.
+ * Se usa después de hacer clic en el enlace de recuperación.
+ */
+export async function updatePassword(formData: FormData) {
+  const password = formData.get('password') as string
+  const confirmPassword = formData.get('confirmPassword') as string
+
+  if (!password) {
+    return { error: 'La contraseña es requerida' }
+  }
+
+  if (password.length < 6) {
+    return { error: 'La contraseña debe tener al menos 6 caracteres' }
+  }
+
+  if (password !== confirmPassword) {
+    return { error: 'Las contraseñas no coinciden' }
+  }
+
+  const supabase = await createClient()
+
+  const { error } = await supabase.auth.updateUser({
+    password,
+  })
+
+  if (error) {
+    console.error('[Auth] Update password error:', error)
+    return { error: 'No se pudo actualizar la contraseña. El enlace puede haber expirado.' }
+  }
+
+  redirect('/')
+}
+
+/**
  * Obtiene el usuario actual
  */
 export async function getUser() {
