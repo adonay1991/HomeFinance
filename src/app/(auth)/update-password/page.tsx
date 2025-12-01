@@ -1,26 +1,36 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
-import { sendPasswordResetLink } from '@/lib/auth/actions'
+import { useRouter } from 'next/navigation'
+import { updatePassword } from '@/lib/auth/actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Home, Mail, Loader2, CheckCircle2, ArrowLeft } from 'lucide-react'
+import { Home, Lock, Loader2, CheckCircle2 } from 'lucide-react'
 
-export default function ResetPasswordPage() {
-  const [email, setEmail] = useState('')
+export default function UpdatePasswordPage() {
+  const router = useRouter()
   const [isPending, setIsPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setIsPending(true)
     setError(null)
 
-    const result = await sendPasswordResetLink(email)
+    const formData = new FormData(e.currentTarget)
+    const password = formData.get('password') as string
+    const confirmPassword = formData.get('confirmPassword') as string
+
+    if (password !== confirmPassword) {
+      setError('Las contraseñas no coinciden')
+      setIsPending(false)
+      return
+    }
+
+    const result = await updatePassword(password)
 
     setIsPending(false)
 
@@ -44,11 +54,11 @@ export default function ResetPasswordPage() {
 
         <Card>
           <CardHeader className="text-center">
-            <CardTitle>{success ? '¡Email enviado!' : 'Recuperar contraseña'}</CardTitle>
+            <CardTitle>{success ? '¡Listo!' : 'Nueva contraseña'}</CardTitle>
             <CardDescription>
               {success
-                ? 'Revisa tu bandeja de entrada'
-                : 'Te enviaremos un enlace para restablecer tu contraseña'}
+                ? 'Tu contraseña ha sido actualizada'
+                : 'Establece tu nueva contraseña'}
             </CardDescription>
           </CardHeader>
 
@@ -56,19 +66,37 @@ export default function ResetPasswordPage() {
             {!success ? (
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="password">Nueva contraseña</Label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input
-                      id="email"
-                      type="email"
-                      placeholder="tu@email.com"
+                      id="password"
+                      name="password"
+                      type="password"
+                      placeholder="Mínimo 6 caracteres"
                       className="pl-10"
                       required
-                      autoComplete="email"
+                      minLength={6}
+                      autoComplete="new-password"
                       disabled={isPending}
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="confirmPassword">Confirmar contraseña</Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="confirmPassword"
+                      name="confirmPassword"
+                      type="password"
+                      placeholder="Repite la contraseña"
+                      className="pl-10"
+                      required
+                      minLength={6}
+                      autoComplete="new-password"
+                      disabled={isPending}
                     />
                   </div>
                 </div>
@@ -81,18 +109,11 @@ export default function ResetPasswordPage() {
                   {isPending ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Enviando...
+                      Guardando...
                     </>
                   ) : (
-                    'Enviar enlace'
+                    'Guardar contraseña'
                   )}
-                </Button>
-
-                <Button variant="ghost" asChild className="w-full">
-                  <Link href="/login">
-                    <ArrowLeft className="w-4 h-4 mr-2" />
-                    Volver al login
-                  </Link>
                 </Button>
               </form>
             ) : (
@@ -100,19 +121,11 @@ export default function ResetPasswordPage() {
                 <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/30">
                   <CheckCircle2 className="w-6 h-6 text-green-600 dark:text-green-400" />
                 </div>
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">
-                    Hemos enviado un enlace a <strong>{email}</strong>
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Revisa también la carpeta de spam
-                  </p>
-                </div>
-                <Button variant="outline" asChild className="w-full">
-                  <Link href="/login">
-                    <ArrowLeft className="w-4 h-4 mr-2" />
-                    Volver al login
-                  </Link>
+                <p className="text-sm text-muted-foreground">
+                  Ya puedes iniciar sesión con tu nueva contraseña
+                </p>
+                <Button className="w-full" onClick={() => router.push('/login')}>
+                  Ir a iniciar sesión
                 </Button>
               </div>
             )}

@@ -2,13 +2,13 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { signInWithPassword, signUp, signInWithDevCredentials } from '@/lib/auth/actions'
+import { signInWithPassword, signUp } from '@/lib/auth/actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Home, Mail, Lock, User, Loader2, CheckCircle2, Zap } from 'lucide-react'
+import { Home, Mail, Lock, User, Loader2, CheckCircle2 } from 'lucide-react'
 import { BiometricLoginButton } from '@/components/auth/biometric-login-button'
 import { saveTempCredentials } from '@/components/auth/biometric-activation-handler'
 import {
@@ -18,13 +18,9 @@ import {
   saveLastEmail
 } from '@/lib/auth/webauthn'
 
-// Detectar si estamos en desarrollo
-const isDev = process.env.NODE_ENV === 'development'
-
 export default function LoginPage() {
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login')
   const [isPending, setIsPending] = useState(false)
-  const [isDevPending, setIsDevPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
@@ -89,18 +85,6 @@ export default function LoginPage() {
       setIsPending(false)
     }
     // Si no hay error ni confirmation, el redirect ya ocurrió
-  }
-
-  async function handleDevLogin() {
-    setIsDevPending(true)
-    setError(null)
-
-    const result = await signInWithDevCredentials()
-
-    if (result?.error) {
-      setError(result.error)
-      setIsDevPending(false)
-    }
   }
 
   return (
@@ -230,7 +214,7 @@ export default function LoginPage() {
                       <p className="text-sm text-destructive">{error}</p>
                     )}
 
-                    <Button type="submit" className="w-full" disabled={isPending || isDevPending}>
+                    <Button type="submit" className="w-full" disabled={isPending}>
                       {isPending ? (
                         <>
                           <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -240,34 +224,6 @@ export default function LoginPage() {
                         'Iniciar sesión'
                       )}
                     </Button>
-
-                    {/* Botón de desarrollo */}
-                    {isDev && (
-                      <div className="pt-4 border-t">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="w-full border-dashed border-amber-500/50 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30"
-                          onClick={handleDevLogin}
-                          disabled={isPending || isDevPending}
-                        >
-                          {isDevPending ? (
-                            <>
-                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                              Entrando...
-                            </>
-                          ) : (
-                            <>
-                              <Zap className="w-4 h-4 mr-2" />
-                              Dev Login (sin email)
-                            </>
-                          )}
-                        </Button>
-                        <p className="text-xs text-muted-foreground text-center mt-2">
-                          Solo disponible en desarrollo
-                        </p>
-                      </div>
-                    )}
                   </form>
                 )}
 
