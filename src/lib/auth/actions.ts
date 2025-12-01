@@ -104,43 +104,114 @@ export async function signOut() {
 }
 
 /**
- * Envía un email para restablecer la contraseña.
- * Funciona tanto para usuarios nuevos (Magic Link) como existentes.
+ * Envía un código OTP de 6 dígitos al email para restablecer la contraseña.
+ * Usa signInWithOtp con shouldCreateUser: false para no crear usuarios nuevos.
  */
-export async function sendPasswordResetEmail(formData: FormData) {
-  const email = formData.get('email') as string
-
+export async function sendPasswordResetOtp(email: string) {
   if (!email) {
     return { error: 'Email es requerido' }
   }
 
   const supabase = await createClient()
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
-    || process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`
-    || 'http://localhost:3000'
-
-  // Usar auth/callback para procesar el token de recovery
-  // El callback detectará type=recovery y redirigirá a reset-password
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${siteUrl}/auth/callback`,
+  // Usar signInWithOtp para enviar un código de 6 dígitos
+  // shouldCreateUser: false asegura que solo funciona para usuarios existentes
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      shouldCreateUser: false,
+    },
   })
 
   if (error) {
-    // No revelar si el email existe o no (seguridad)
-    console.error('[Auth] Reset password error:', error)
+    console.error('[Auth] Send OTP error:', error)
+    // No revelar si el usuario existe o no
+    if (error.message.includes('Signups not allowed')) {
+      // Este error indica que el usuario no existe, pero no lo revelamos
+      return {
+        success: true,
+        message: 'Si el email está registrado, recibirás un código de 6 dígitos.'
+      }
+    }
+    return { error: 'Error al enviar el código. Intenta de nuevo.' }
   }
 
-  // Siempre devolver éxito para no revelar si el email existe
   return {
     success: true,
-    message: 'Si el email existe, recibirás un enlace para establecer tu contraseña.'
+    message: 'Te hemos enviado un código de 6 dígitos a tu email.'
   }
 }
 
 /**
- * Actualiza la contraseña del usuario actual.
- * Se usa después de hacer clic en el enlace de recuperación.
+ * Verifica el código OTP y establece la nueva contraseña.
+ * Flujo en dos pasos: primero verifica OTP, luego actualiza password.
+ */
+export async function verifyOtpAndSetPassword(
+  email: string,
+  otp: string,
+  password: string,
+  confirmPassword: string
+) {
+  if (!email || !otp) {
+    return { error: 'Email y código son requeridos' }
+  }
+
+  if (!password) {
+    return { error: 'La contraseña es requerida' }
+  }
+
+  if (password.length < 6) {
+    return { error: 'La contraseña debe tener al menos 6 caracteres' }
+  }
+
+  if (password !== confirmPassword) {
+    return { error: 'Las contraseñas no coinciden' }
+  }
+
+  const supabase = await createClient()
+
+  // Paso 1: Verificar el OTP (esto crea una sesión)
+  const { data, error: verifyError } = await supabase.auth.verifyOtp({
+    email,
+    token: otp,
+    type: 'email',
+  })
+
+  if (verifyError) {
+    console.error('[Auth] Verify OTP error:', verifyError)
+    if (verifyError.message.includes('Invalid') || verifyError.message.includes('expired')) {
+      return { error: 'Código inválido o expirado. Solicita uno nuevo.' }
+    }
+    return { error: verifyError.message }
+  }
+
+  if (!data.session) {
+    return { error: 'No se pudo verificar el código. Intenta de nuevo.' }
+  }
+
+  // Paso 2: Actualizar la contraseña
+  const { error: updateError } = await supabase.auth.updateUser({
+    password,
+  })
+
+  if (updateError) {
+    console.error('[Auth] Update password error:', updateError)
+    return { error: 'No se pudo establecer la contraseña. Intenta de nuevo.' }
+  }
+
+  return { success: true }
+}
+
+/**
+ * @deprecated Usar sendPasswordResetOtp en su lugar
+ */
+export async function sendPasswordResetEmail(formData: FormData) {
+  const email = formData.get('email') as string
+  return sendPasswordResetOtp(email)
+}
+
+/**
+ * @deprecated Usar verifyOtpAndSetPassword en su lugar
  */
 export async function updatePassword(formData: FormData) {
   const password = formData.get('password') as string
@@ -166,7 +237,7 @@ export async function updatePassword(formData: FormData) {
 
   if (error) {
     console.error('[Auth] Update password error:', error)
-    return { error: 'No se pudo actualizar la contraseña. El enlace puede haber expirado.' }
+    return { error: 'No se pudo actualizar la contraseña.' }
   }
 
   redirect('/')

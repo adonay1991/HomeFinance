@@ -3,7 +3,6 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import { Toaster } from 'sonner'
 import { ThemeProvider } from '@/components/theme'
 import { ServiceWorkerRegister } from '@/components/pwa'
-import { PasswordRecoveryListener } from '@/components/auth/password-recovery-listener'
 import './globals.css'
 
 const geistSans = Geist({
@@ -85,7 +84,6 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <PasswordRecoveryListener />
           {children}
           <Toaster
             position="top-center"
