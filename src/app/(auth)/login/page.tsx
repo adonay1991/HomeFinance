@@ -1,35 +1,53 @@
 'use client'
 
 import { useState } from 'react'
-import { signInWithMagicLink, signInWithDevCredentials } from '@/lib/auth/actions'
+import { signInWithPassword, signUp, signInWithDevCredentials } from '@/lib/auth/actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Home, Mail, Loader2, CheckCircle2, Zap } from 'lucide-react'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Home, Mail, Lock, User, Loader2, CheckCircle2, Zap } from 'lucide-react'
 
-// Detectar si estamos en desarrollo (variable inyectada en build time)
+// Detectar si estamos en desarrollo
 const isDev = process.env.NODE_ENV === 'development'
 
 export default function LoginPage() {
+  const [activeTab, setActiveTab] = useState<'login' | 'register'>('login')
   const [isPending, setIsPending] = useState(false)
   const [isDevPending, setIsDevPending] = useState(false)
-  const [emailSent, setEmailSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
-  async function handleSubmit(formData: FormData) {
+  async function handleLogin(formData: FormData) {
     setIsPending(true)
     setError(null)
+    setSuccessMessage(null)
 
-    const result = await signInWithMagicLink(formData)
+    const result = await signInWithPassword(formData)
 
-    if (result.error) {
+    if (result?.error) {
       setError(result.error)
       setIsPending(false)
-    } else {
-      setEmailSent(true)
+    }
+    // Si no hay error, el redirect ya ocurrió
+  }
+
+  async function handleRegister(formData: FormData) {
+    setIsPending(true)
+    setError(null)
+    setSuccessMessage(null)
+
+    const result = await signUp(formData)
+
+    if (result?.error) {
+      setError(result.error)
+      setIsPending(false)
+    } else if (result?.requiresConfirmation) {
+      setSuccessMessage(result.message)
       setIsPending(false)
     }
+    // Si no hay error ni confirmation, el redirect ya ocurrió
   }
 
   async function handleDevLogin() {
@@ -38,7 +56,6 @@ export default function LoginPage() {
 
     const result = await signInWithDevCredentials()
 
-    // Si hay error, mostrarlo (si no hay error, redirect ya ocurrió)
     if (result?.error) {
       setError(result.error)
       setIsDevPending(false)
@@ -59,108 +76,217 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Card de login */}
+        {/* Card con Tabs */}
         <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-xl">Iniciar sesión</CardTitle>
-            <CardDescription>
-              Te enviaremos un enlace mágico a tu email
-            </CardDescription>
+          <CardHeader className="space-y-1 pb-2">
+            <Tabs value={activeTab} onValueChange={(v) => {
+              setActiveTab(v as 'login' | 'register')
+              setError(null)
+              setSuccessMessage(null)
+            }}>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="login">Iniciar sesión</TabsTrigger>
+                <TabsTrigger value="register">Registrarse</TabsTrigger>
+              </TabsList>
+            </Tabs>
           </CardHeader>
           <CardContent>
-            {emailSent ? (
-              // Estado: email enviado
+            {/* Mensaje de éxito (confirmación de email) */}
+            {successMessage ? (
               <div className="text-center space-y-4 py-4">
                 <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/30">
                   <CheckCircle2 className="w-6 h-6 text-green-600 dark:text-green-400" />
                 </div>
                 <div className="space-y-1">
-                  <p className="font-medium">¡Email enviado!</p>
+                  <p className="font-medium">¡Registro exitoso!</p>
                   <p className="text-sm text-muted-foreground">
-                    Revisa tu bandeja de entrada y haz click en el enlace
+                    {successMessage}
                   </p>
                 </div>
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   className="text-sm"
                   onClick={() => {
-                    setEmailSent(false)
-                    setError(null)
+                    setSuccessMessage(null)
+                    setActiveTab('login')
                   }}
                 >
-                  Usar otro email
+                  Ir a iniciar sesión
                 </Button>
               </div>
             ) : (
-              // Formulario de login
-              <form action={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      id="email"
-                      name="email"
-                      type="email"
-                      placeholder="tu@email.com"
-                      className="pl-10"
-                      required
-                      autoComplete="email"
-                      disabled={isPending}
-                    />
-                  </div>
-                </div>
+              <>
+                {/* Tab de Login */}
+                {activeTab === 'login' && (
+                  <form action={handleLogin} className="space-y-4">
+                    <CardDescription className="pb-2">
+                      Ingresa tus credenciales para acceder
+                    </CardDescription>
 
-                {error && (
-                  <p className="text-sm text-destructive">{error}</p>
-                )}
+                    <div className="space-y-2">
+                      <Label htmlFor="login-email">Email</Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          id="login-email"
+                          name="email"
+                          type="email"
+                          placeholder="tu@email.com"
+                          className="pl-10"
+                          required
+                          autoComplete="email"
+                          disabled={isPending}
+                        />
+                      </div>
+                    </div>
 
-                <Button type="submit" className="w-full" disabled={isPending || isDevPending}>
-                  {isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Enviando...
-                    </>
-                  ) : (
-                    'Enviar enlace mágico'
-                  )}
-                </Button>
+                    <div className="space-y-2">
+                      <Label htmlFor="login-password">Contraseña</Label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          id="login-password"
+                          name="password"
+                          type="password"
+                          placeholder="••••••••"
+                          className="pl-10"
+                          required
+                          autoComplete="current-password"
+                          disabled={isPending}
+                        />
+                      </div>
+                    </div>
 
-                {/* Botón de desarrollo - solo visible en dev */}
-                {isDev && (
-                  <div className="pt-4 border-t">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full border-dashed border-amber-500/50 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30"
-                      onClick={handleDevLogin}
-                      disabled={isPending || isDevPending}
-                    >
-                      {isDevPending ? (
+                    {error && (
+                      <p className="text-sm text-destructive">{error}</p>
+                    )}
+
+                    <Button type="submit" className="w-full" disabled={isPending || isDevPending}>
+                      {isPending ? (
                         <>
                           <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Entrando...
+                          Iniciando sesión...
                         </>
                       ) : (
-                        <>
-                          <Zap className="w-4 h-4 mr-2" />
-                          Dev Login (sin email)
-                        </>
+                        'Iniciar sesión'
                       )}
                     </Button>
-                    <p className="text-xs text-muted-foreground text-center mt-2">
-                      Solo disponible en desarrollo
-                    </p>
-                  </div>
+
+                    {/* Botón de desarrollo */}
+                    {isDev && (
+                      <div className="pt-4 border-t">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-full border-dashed border-amber-500/50 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                          onClick={handleDevLogin}
+                          disabled={isPending || isDevPending}
+                        >
+                          {isDevPending ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              Entrando...
+                            </>
+                          ) : (
+                            <>
+                              <Zap className="w-4 h-4 mr-2" />
+                              Dev Login (sin email)
+                            </>
+                          )}
+                        </Button>
+                        <p className="text-xs text-muted-foreground text-center mt-2">
+                          Solo disponible en desarrollo
+                        </p>
+                      </div>
+                    )}
+                  </form>
                 )}
-              </form>
+
+                {/* Tab de Registro */}
+                {activeTab === 'register' && (
+                  <form action={handleRegister} className="space-y-4">
+                    <CardDescription className="pb-2">
+                      Crea tu cuenta para empezar
+                    </CardDescription>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="register-name">Nombre (opcional)</Label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          id="register-name"
+                          name="name"
+                          type="text"
+                          placeholder="Tu nombre"
+                          className="pl-10"
+                          autoComplete="name"
+                          disabled={isPending}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="register-email">Email</Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          id="register-email"
+                          name="email"
+                          type="email"
+                          placeholder="tu@email.com"
+                          className="pl-10"
+                          required
+                          autoComplete="email"
+                          disabled={isPending}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="register-password">Contraseña</Label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          id="register-password"
+                          name="password"
+                          type="password"
+                          placeholder="Mínimo 6 caracteres"
+                          className="pl-10"
+                          required
+                          minLength={6}
+                          autoComplete="new-password"
+                          disabled={isPending}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Mínimo 6 caracteres
+                      </p>
+                    </div>
+
+                    {error && (
+                      <p className="text-sm text-destructive">{error}</p>
+                    )}
+
+                    <Button type="submit" className="w-full" disabled={isPending}>
+                      {isPending ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Creando cuenta...
+                        </>
+                      ) : (
+                        'Crear cuenta'
+                      )}
+                    </Button>
+                  </form>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
 
         {/* Footer */}
         <p className="text-center text-xs text-muted-foreground">
-          Sin contraseñas. Simple y seguro.
+          Tu información está segura con nosotros
         </p>
       </div>
     </div>
