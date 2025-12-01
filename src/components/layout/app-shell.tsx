@@ -1,5 +1,6 @@
 import { Header } from './header'
 import { BottomNav } from './bottom-nav'
+import { BiometricActivationHandler } from '@/components/auth/biometric-activation-handler'
 
 // ==========================================
 // APP SHELL - LAYOUT PRINCIPAL
@@ -25,6 +26,9 @@ export function AppShell({ children, userName, userEmail }: AppShellProps) {
       </main>
 
       <BottomNav />
+
+      {/* Prompt de activación de biometría (Face ID / Huella) */}
+      <BiometricActivationHandler />
     </div>
   )
 }
