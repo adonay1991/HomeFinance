@@ -31,30 +31,48 @@ export default function ResetPasswordPage() {
   // Procesar tokens de Supabase al cargar la página
   useEffect(() => {
     async function handleRecoveryToken() {
-      // Verificar si viene con mode=update (del redirect de Supabase)
+      const supabase = createClient()
+
+      // Verificar si viene con mode=update (del redirect de nuestro callback)
       const mode = searchParams.get('mode')
 
-      if (mode === 'update') {
-        // Supabase debería haber establecido la sesión automáticamente
-        // a través del hash fragment (#access_token=...)
-        const supabase = createClient()
+      // También verificar si hay tokens en el hash fragment (cuando Supabase redirige directamente)
+      // El hash fragment tiene formato: #access_token=...&type=recovery&...
+      const hashParams = typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.hash.substring(1))
+        : null
+      const hashType = hashParams?.get('type')
+      const hasRecoveryHash = hashType === 'recovery'
 
-        // Verificar si hay una sesión activa
+      // Si hay hash con tokens de recovery, dejar que Supabase los procese
+      if (hasRecoveryHash) {
+        // Supabase client detecta automáticamente los tokens en el hash
+        // y establece la sesión. Solo necesitamos esperar un poco.
+        const { data: { session }, error } = await supabase.auth.getSession()
+
+        if (session) {
+          setIsUpdateMode(true)
+          // Limpiar el hash de la URL para que no quede visible
+          if (typeof window !== 'undefined') {
+            window.history.replaceState(null, '', '/reset-password?mode=update')
+          }
+        } else if (error) {
+          console.error('[ResetPassword] Hash session error:', error)
+          setError('El enlace ha expirado o es inválido. Solicita uno nuevo.')
+        }
+        setIsLoading(false)
+        return
+      }
+
+      // Si viene con mode=update, verificar que hay sesión válida
+      if (mode === 'update') {
         const { data: { session } } = await supabase.auth.getSession()
 
         if (session) {
           setIsUpdateMode(true)
         } else {
-          // Intentar obtener sesión del hash fragment
-          // Supabase client lo hace automáticamente, pero puede tomar un momento
-          const { data, error } = await supabase.auth.getSession()
-
-          if (data.session) {
-            setIsUpdateMode(true)
-          } else {
-            // No hay sesión - el enlace puede haber expirado
-            setError('El enlace ha expirado o es inválido. Solicita uno nuevo.')
-          }
+          // No hay sesión - el enlace puede haber expirado
+          setError('El enlace ha expirado o es inválido. Solicita uno nuevo.')
         }
       }
 
@@ -62,7 +80,7 @@ export default function ResetPasswordPage() {
     }
 
     // Pequeño delay para permitir que Supabase procese el hash
-    const timer = setTimeout(handleRecoveryToken, 500)
+    const timer = setTimeout(handleRecoveryToken, 100)
     return () => clearTimeout(timer)
   }, [searchParams])
 
