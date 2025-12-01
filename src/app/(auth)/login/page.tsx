@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { signInWithPassword, signUp, signInWithDevCredentials } from '@/lib/auth/actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -201,7 +202,15 @@ export default function LoginPage() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="login-password">Contraseña</Label>
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="login-password">Contraseña</Label>
+                        <Link
+                          href="/reset-password"
+                          className="text-xs text-muted-foreground hover:text-primary transition-colors"
+                        >
+                          ¿Olvidaste tu contraseña?
+                        </Link>
+                      </div>
                       <div className="relative">
                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                         <Input
