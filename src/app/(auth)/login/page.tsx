@@ -1,13 +1,20 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { signInWithPassword, signUp, signInWithDevCredentials } from '@/lib/auth/actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Home, Mail, Lock, User, Loader2, CheckCircle2, Zap } from 'lucide-react'
+import { BiometricLoginButton } from '@/components/auth/biometric-login-button'
+import {
+  isWebAuthnSupported,
+  hasBiometricCredential,
+  getLastEmail,
+  saveLastEmail
+} from '@/lib/auth/webauthn'
 
 // Detectar si estamos en desarrollo
 const isDev = process.env.NODE_ENV === 'development'
@@ -19,10 +26,34 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
+  // Estado para biometría
+  const [showBiometric, setShowBiometric] = useState(false)
+  const [lastEmail, setLastEmail] = useState<string | null>(null)
+
+  // Verificar si mostrar opción de biometría al montar
+  useEffect(() => {
+    const checkBiometric = () => {
+      if (isWebAuthnSupported() && hasBiometricCredential()) {
+        setShowBiometric(true)
+      }
+      const email = getLastEmail()
+      if (email) {
+        setLastEmail(email)
+      }
+    }
+    checkBiometric()
+  }, [])
+
   async function handleLogin(formData: FormData) {
     setIsPending(true)
     setError(null)
     setSuccessMessage(null)
+
+    // Guardar email para futuros logins
+    const email = formData.get('email') as string
+    if (email) {
+      saveLastEmail(email)
+    }
 
     const result = await signInWithPassword(formData)
 
@@ -75,6 +106,25 @@ export default function LoginPage() {
             Gestiona los gastos de tu hogar
           </p>
         </div>
+
+        {/* Botón de biometría (solo si está disponible) */}
+        {showBiometric && activeTab === 'login' && (
+          <div className="space-y-3">
+            <BiometricLoginButton
+              onError={(err) => setError(err)}
+            />
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">
+                  o continúa con email
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Card con Tabs */}
         <Card>
@@ -136,6 +186,7 @@ export default function LoginPage() {
                           required
                           autoComplete="email"
                           disabled={isPending}
+                          defaultValue={lastEmail || ''}
                         />
                       </div>
                     </div>
