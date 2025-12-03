@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { DEFAULT_HOUSEHOLD_ID } from '@/lib/constants'
+import { DEFAULT_HOUSEHOLD_ID, type CategoryKey } from '@/lib/constants'
 
 // ==========================================
 // SERVER ACTIONS PARA PRESUPUESTO MENSUAL
@@ -184,4 +184,194 @@ export async function getBudgetSummary(year: number, month: number) {
       hasBudget: budget > 0,
     }
   }
+}
+
+// ==========================================
+// PRESUPUESTOS POR CATEGORÍA
+// ==========================================
+
+export interface CategoryBudget {
+  category: CategoryKey
+  limit: number
+  spent: number
+  remaining: number
+  percentage: number
+}
+
+// Establecer presupuesto para una categoría específica
+export async function setCategoryBudget(category: CategoryKey, limit: number, year: number, month: number) {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return { error: 'No autenticado' }
+  }
+
+  if (limit <= 0) {
+    return { error: 'El presupuesto debe ser mayor que 0' }
+  }
+
+  // Upsert: crear o actualizar
+  const { error } = await supabase
+    .from('budgets')
+    .upsert({
+      household_id: DEFAULT_HOUSEHOLD_ID,
+      category,
+      monthly_limit: limit,
+      year,
+      month,
+    }, {
+      onConflict: 'household_id,category,year,month',
+    })
+
+  if (error) {
+    console.error('Error setting category budget:', error)
+    return { error: 'Error al guardar el presupuesto' }
+  }
+
+  revalidatePath('/')
+  revalidatePath('/expenses')
+
+  return { success: true }
+}
+
+// Eliminar presupuesto de una categoría
+export async function deleteCategoryBudget(category: CategoryKey, year: number, month: number) {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return { error: 'No autenticado' }
+  }
+
+  const { error } = await supabase
+    .from('budgets')
+    .delete()
+    .eq('household_id', DEFAULT_HOUSEHOLD_ID)
+    .eq('category', category)
+    .eq('year', year)
+    .eq('month', month)
+
+  if (error) {
+    console.error('Error deleting category budget:', error)
+    return { error: 'Error al eliminar el presupuesto' }
+  }
+
+  revalidatePath('/')
+  revalidatePath('/expenses')
+
+  return { success: true }
+}
+
+// Obtener presupuestos por categoría con gasto actual
+export async function getCategoryBudgets(year: number, month: number) {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return { error: 'No autenticado', data: [] }
+  }
+
+  // Obtener presupuestos (excluyendo el _total)
+  const { data: budgets, error: budgetsError } = await supabase
+    .from('budgets')
+    .select('category, monthly_limit')
+    .eq('household_id', DEFAULT_HOUSEHOLD_ID)
+    .eq('year', year)
+    .eq('month', month)
+    .neq('category', TOTAL_BUDGET_CATEGORY)
+
+  if (budgetsError) {
+    console.error('Error fetching category budgets:', budgetsError)
+    return { error: 'Error al cargar presupuestos', data: [] }
+  }
+
+  // Calcular fechas del mes
+  const startDate = `${year}-${String(month).padStart(2, '0')}-01`
+  const endDate = new Date(year, month, 0).toISOString().split('T')[0]
+
+  // Obtener gastos del mes
+  const { data: expenses, error: expensesError } = await supabase
+    .from('expenses')
+    .select('amount, category')
+    .eq('household_id', DEFAULT_HOUSEHOLD_ID)
+    .gte('date', startDate)
+    .lte('date', endDate)
+
+  if (expensesError) {
+    console.error('Error fetching expenses:', expensesError)
+    return { error: 'Error al cargar gastos', data: [] }
+  }
+
+  // Agrupar gastos por categoría
+  const spentByCategory = (expenses || []).reduce((acc, e) => {
+    acc[e.category] = (acc[e.category] || 0) + Number(e.amount)
+    return acc
+  }, {} as Record<string, number>)
+
+  // Combinar presupuestos con gastos
+  const result: CategoryBudget[] = (budgets || []).map(b => {
+    const limit = Number(b.monthly_limit)
+    const spent = spentByCategory[b.category] || 0
+    return {
+      category: b.category as CategoryKey,
+      limit,
+      spent,
+      remaining: limit - spent,
+      percentage: (spent / limit) * 100,
+    }
+  })
+
+  return { data: result }
+}
+
+// Copiar presupuestos del mes anterior al actual
+export async function copyBudgetsFromPreviousMonth(year: number, month: number) {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return { error: 'No autenticado' }
+  }
+
+  // Calcular mes anterior
+  const prevMonth = month === 1 ? 12 : month - 1
+  const prevYear = month === 1 ? year - 1 : year
+
+  // Obtener presupuestos del mes anterior
+  const { data: prevBudgets, error: fetchError } = await supabase
+    .from('budgets')
+    .select('category, monthly_limit')
+    .eq('household_id', DEFAULT_HOUSEHOLD_ID)
+    .eq('year', prevYear)
+    .eq('month', prevMonth)
+
+  if (fetchError || !prevBudgets?.length) {
+    return { error: 'No hay presupuestos en el mes anterior' }
+  }
+
+  // Insertar en el mes actual (upsert para evitar duplicados)
+  const newBudgets = prevBudgets.map(b => ({
+    household_id: DEFAULT_HOUSEHOLD_ID,
+    category: b.category,
+    monthly_limit: b.monthly_limit,
+    year,
+    month,
+  }))
+
+  const { error: insertError } = await supabase
+    .from('budgets')
+    .upsert(newBudgets, {
+      onConflict: 'household_id,category,year,month',
+    })
+
+  if (insertError) {
+    console.error('Error copying budgets:', insertError)
+    return { error: 'Error al copiar presupuestos' }
+  }
+
+  revalidatePath('/')
+  revalidatePath('/expenses')
+
+  return { success: true, count: prevBudgets.length }
 }

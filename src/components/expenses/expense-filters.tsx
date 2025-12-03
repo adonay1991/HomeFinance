@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { CATEGORY_LIST, type CategoryKey } from '@/lib/constants'
-import { Filter, X } from 'lucide-react'
+import { Filter, X, Tag } from 'lucide-react'
 import {
   Sheet,
   SheetContent,
@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/sheet'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
 import { useState } from 'react'
 
 // ==========================================
@@ -23,14 +24,22 @@ interface ExpenseFiltersProps {
   activeCategory?: string
   startDate?: string
   endDate?: string
+  activeTags?: string[]
+  availableTags?: string[]
 }
 
-export function ExpenseFilters({ activeCategory, startDate, endDate }: ExpenseFiltersProps) {
+export function ExpenseFilters({
+  activeCategory,
+  startDate,
+  endDate,
+  activeTags = [],
+  availableTags = []
+}: ExpenseFiltersProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isOpen, setIsOpen] = useState(false)
 
-  const hasFilters = activeCategory || startDate || endDate
+  const hasFilters = activeCategory || startDate || endDate || activeTags.length > 0
 
   function updateFilters(params: Record<string, string | undefined>) {
     const newParams = new URLSearchParams(searchParams.toString())
@@ -55,6 +64,20 @@ export function ExpenseFilters({ activeCategory, startDate, endDate }: ExpenseFi
     updateFilters({
       category: activeCategory === category ? undefined : category,
     })
+  }
+
+  function toggleTag(tag: string) {
+    const newTags = activeTags.includes(tag)
+      ? activeTags.filter(t => t !== tag)
+      : [...activeTags, tag]
+
+    const newParams = new URLSearchParams(searchParams.toString())
+    if (newTags.length > 0) {
+      newParams.set('tags', newTags.join(','))
+    } else {
+      newParams.delete('tags')
+    }
+    router.push(`/expenses?${newParams.toString()}`)
   }
 
   return (
@@ -123,6 +146,31 @@ export function ExpenseFilters({ activeCategory, startDate, endDate }: ExpenseFi
                   />
                 </div>
               </div>
+
+              {/* Filtro por tags */}
+              {availableTags.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    <Tag className="w-4 h-4" />
+                    Tags
+                  </Label>
+                  <div className="flex flex-wrap gap-2">
+                    {availableTags.map((tag) => (
+                      <Badge
+                        key={tag}
+                        variant={activeTags.includes(tag) ? 'default' : 'outline'}
+                        className="cursor-pointer hover:bg-primary/80 transition-colors"
+                        onClick={() => toggleTag(tag)}
+                      >
+                        {tag}
+                        {activeTags.includes(tag) && (
+                          <X className="w-3 h-3 ml-1" />
+                        )}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Botones */}
               <div className="flex gap-2 pt-4">
