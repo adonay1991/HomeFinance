@@ -84,6 +84,43 @@ export type Budget = typeof budgets.$inferSelect
 export type NewBudget = typeof budgets.$inferInsert
 
 // ==========================================
+// TABLA: recurring_expenses
+// Plantillas de gastos que se repiten automáticamente
+// ==========================================
+export const recurringExpenses = pgTable('recurring_expenses', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  householdId: uuid('household_id').notNull(),
+  amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),
+  description: text('description'),
+  category: text('category').notNull(),
+  tags: text('tags').array(),
+
+  // Configuración de recurrencia
+  frequency: text('frequency').notNull(), // 'weekly' | 'biweekly' | 'monthly' | 'yearly'
+  dayOfMonth: integer('day_of_month'), // 1-31 para mensual/anual
+  dayOfWeek: integer('day_of_week'), // 0-6 para semanal (0=domingo)
+  monthOfYear: integer('month_of_year'), // 1-12 para anual
+
+  // Control de ejecución
+  startDate: date('start_date').notNull(),
+  endDate: date('end_date'),
+  lastExecutedDate: date('last_executed_date'),
+  nextExecutionDate: date('next_execution_date').notNull(),
+
+  // Metadata
+  isActive: boolean('is_active').default(true).notNull(),
+  createdBy: uuid('created_by').references(() => users.id).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => [
+  index('idx_recurring_expenses_household').on(table.householdId),
+  index('idx_recurring_expenses_next_execution').on(table.nextExecutionDate),
+])
+
+export type RecurringExpense = typeof recurringExpenses.$inferSelect
+export type NewRecurringExpense = typeof recurringExpenses.$inferInsert
+
+// ==========================================
 // TABLAS: Banking (Enable Banking integration)
 // ==========================================
 

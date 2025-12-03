@@ -54,6 +54,7 @@ export async function getExpenses(options?: {
   category?: string
   startDate?: string
   endDate?: string
+  tags?: string[]
 }) {
   const supabase = await createClient()
 
@@ -82,6 +83,11 @@ export async function getExpenses(options?: {
 
   if (options?.endDate) {
     query = query.lte('date', options.endDate)
+  }
+
+  // Filtrar por tags (busca si algún tag del filtro está en los tags del gasto)
+  if (options?.tags && options.tags.length > 0) {
+    query = query.overlaps('tags', options.tags)
   }
 
   if (options?.limit) {
@@ -184,6 +190,37 @@ export async function deleteExpense(id: string) {
   revalidatePath('/expenses')
 
   return { success: true }
+}
+
+// Obtener todos los tags únicos usados en el hogar
+export async function getAllTags() {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return { error: 'No autenticado', data: [] }
+  }
+
+  const { data, error } = await supabase
+    .from('expenses')
+    .select('tags')
+    .eq('household_id', DEFAULT_HOUSEHOLD_ID)
+    .not('tags', 'is', null)
+
+  if (error) {
+    console.error('Error fetching tags:', error)
+    return { error: 'Error al cargar los tags', data: [] }
+  }
+
+  // Extraer tags únicos de todos los gastos
+  const allTags = new Set<string>()
+  data?.forEach(expense => {
+    if (expense.tags && Array.isArray(expense.tags)) {
+      expense.tags.forEach(tag => allTags.add(tag))
+    }
+  })
+
+  return { data: Array.from(allTags).sort() }
 }
 
 export async function getMonthlyStats(year: number, month: number) {
