@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
-import { ExpenseList, ExpenseListSkeleton, ExpenseFilters } from '@/components/expenses'
-import { getExpenses } from '@/lib/actions/expenses'
+import { ExpenseListWithEdit, ExpenseListSkeleton, ExpenseFilters } from '@/components/expenses'
+import { getExpenses, getAllTags } from '@/lib/actions/expenses'
 import { CURRENCY_SYMBOL } from '@/lib/constants'
 
 // ==========================================
@@ -12,11 +12,18 @@ interface PageProps {
     category?: string
     startDate?: string
     endDate?: string
+    tags?: string
   }>
 }
 
 export default async function ExpensesPage({ searchParams }: PageProps) {
   const params = await searchParams
+
+  // Parsear tags desde el query string (separados por coma)
+  const activeTags = params.tags ? params.tags.split(',').filter(Boolean) : []
+
+  // Cargar tags disponibles
+  const { data: availableTags } = await getAllTags()
 
   return (
     <div className="space-y-4">
@@ -32,6 +39,8 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
         activeCategory={params.category}
         startDate={params.startDate}
         endDate={params.endDate}
+        activeTags={activeTags}
+        availableTags={availableTags}
       />
 
       {/* Lista de gastos */}
@@ -40,6 +49,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
           category={params.category}
           startDate={params.startDate}
           endDate={params.endDate}
+          tags={activeTags}
         />
       </Suspense>
     </div>
@@ -51,15 +61,18 @@ async function ExpenseListWrapper({
   category,
   startDate,
   endDate,
+  tags,
 }: {
   category?: string
   startDate?: string
   endDate?: string
+  tags?: string[]
 }) {
   const { data: expenses, error } = await getExpenses({
     category,
     startDate,
     endDate,
+    tags,
     limit: 50,
   })
 
@@ -89,7 +102,7 @@ async function ExpenseListWrapper({
         </div>
       )}
 
-      <ExpenseList expenses={expenses} />
+      <ExpenseListWithEdit expenses={expenses} />
     </div>
   )
 }

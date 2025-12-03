@@ -3,13 +3,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CURRENCY_SYMBOL } from '@/lib/constants'
 import { getExpenses, getMonthlyStats, getMonthlyHistory } from '@/lib/actions/expenses'
-import { getBudgetSummary } from '@/lib/actions/budgets'
+import { getBudgetSummary, getCategoryBudgets } from '@/lib/actions/budgets'
+import { getRecurringExpenses, getRecurringExpensesSummary } from '@/lib/actions/recurring-expenses'
 import { getUserProfile } from '@/lib/auth/actions'
 import { hasBankConnection, getIncomeVsExpensesHistory } from '@/lib/actions/banking'
 import { ExpenseList } from '@/components/expenses'
 import { CategoryChart, MonthlyChart, IncomeVsExpensesChart } from '@/components/charts'
 import { BudgetAlert } from '@/components/alerts'
-import { BudgetSetup } from '@/components/budgets'
+import { BudgetSetup, CategoryBudgets } from '@/components/budgets'
+import { RecurringExpenseCard } from '@/components/recurring'
 import { BalanceCard, MonthlySummaryCards, RecentTransactions } from '@/components/dashboard'
 import { TrendingUp, TrendingDown, Wallet, PieChart, Building2 } from 'lucide-react'
 import Link from 'next/link'
@@ -34,6 +36,9 @@ export default async function DashboardPage() {
     { data: recentExpenses },
     { data: monthlyHistory },
     { data: budgetSummary },
+    { data: categoryBudgets },
+    { data: recurringExpenses },
+    { data: recurringSummary },
     userProfile,
     incomeVsExpensesHistory,
   ] = await Promise.all([
@@ -45,6 +50,9 @@ export default async function DashboardPage() {
     getExpenses({ limit: 5 }),
     getMonthlyHistory(6),
     getBudgetSummary(currentYear, currentMonth),
+    getCategoryBudgets(currentYear, currentMonth),
+    getRecurringExpenses(),
+    getRecurringExpensesSummary(),
     getUserProfile(),
     // Solo obtener datos de ingresos vs gastos si tiene banco conectado
     hasBankConnected ? getIncomeVsExpensesHistory(6) : Promise.resolve([]),
@@ -141,6 +149,20 @@ export default async function DashboardPage() {
           <Suspense fallback={<RecentTransactionsSkeleton />}>
             <RecentTransactions />
           </Suspense>
+
+          {/* Presupuestos por categoría */}
+          <CategoryBudgets
+            budgets={categoryBudgets || []}
+            year={currentYear}
+            month={currentMonth}
+          />
+
+          {/* Gastos recurrentes */}
+          <RecurringExpenseCard
+            expenses={recurringExpenses || []}
+            pendingTotal={recurringSummary?.totalPending || 0}
+            pendingCount={recurringSummary?.count || 0}
+          />
 
           {/* Gráficos */}
           <div className="space-y-4">
@@ -303,6 +325,20 @@ export default async function DashboardPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Presupuestos por categoría */}
+          <CategoryBudgets
+            budgets={categoryBudgets || []}
+            year={currentYear}
+            month={currentMonth}
+          />
+
+          {/* Gastos recurrentes */}
+          <RecurringExpenseCard
+            expenses={recurringExpenses || []}
+            pendingTotal={recurringSummary?.totalPending || 0}
+            pendingCount={recurringSummary?.count || 0}
+          />
 
           {/* Gráficos */}
           <div className="space-y-4">
