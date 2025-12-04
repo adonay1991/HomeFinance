@@ -1,19 +1,21 @@
 import { Suspense } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Badge } from '@/components/ui/badge'
 import { CURRENCY_SYMBOL } from '@/lib/constants'
 import { getExpenses, getMonthlyStats, getMonthlyHistory } from '@/lib/actions/expenses'
 import { getBudgetSummary, getCategoryBudgets } from '@/lib/actions/budgets'
 import { getRecurringExpenses, getRecurringExpensesSummary } from '@/lib/actions/recurring-expenses'
 import { getUserProfile } from '@/lib/auth/actions'
 import { hasBankConnection, getIncomeVsExpensesHistory } from '@/lib/actions/banking'
+import { getUserHousehold, getHouseholdMembers, getHouseholdBalances } from '@/lib/actions/household'
 import { ExpenseList } from '@/components/expenses'
 import { CategoryChart, MonthlyChart, IncomeVsExpensesChart } from '@/components/charts'
 import { BudgetAlert } from '@/components/alerts'
 import { BudgetSetup, CategoryBudgets } from '@/components/budgets'
 import { RecurringExpenseCard } from '@/components/recurring'
 import { BalanceCard, MonthlySummaryCards, RecentTransactions } from '@/components/dashboard'
-import { TrendingUp, TrendingDown, Wallet, PieChart, Building2 } from 'lucide-react'
+import { TrendingUp, TrendingDown, Wallet, PieChart, Building2, Users, ArrowRight, Home } from 'lucide-react'
 import Link from 'next/link'
 
 // ==========================================
@@ -41,6 +43,9 @@ export default async function DashboardPage() {
     { data: recurringSummary },
     userProfile,
     incomeVsExpensesHistory,
+    householdResult,
+    membersResult,
+    balancesResult,
   ] = await Promise.all([
     getMonthlyStats(currentYear, currentMonth),
     getMonthlyStats(
@@ -56,7 +61,15 @@ export default async function DashboardPage() {
     getUserProfile(),
     // Solo obtener datos de ingresos vs gastos si tiene banco conectado
     hasBankConnected ? getIncomeVsExpensesHistory(6) : Promise.resolve([]),
+    getUserHousehold(),
+    getHouseholdMembers(),
+    getHouseholdBalances(),
   ])
+
+  const household = householdResult.data
+  const members = membersResult.data
+  const balances = balancesResult.data
+  const hasMultipleMembers = (members?.length || 0) > 1
 
   // Obtener el primer nombre del usuario
   const firstName = userProfile?.name?.split(' ')[0]
@@ -97,6 +110,36 @@ export default async function DashboardPage() {
           month={currentMonth}
         />
       </div>
+
+      {/* Card de Hogar Compartido (si tiene múltiples miembros o deudas) */}
+      {household && hasMultipleMembers && (
+        <Link href="/household">
+          <Card className="bg-gradient-to-br from-violet-500/10 to-purple-500/10 border-violet-500/20 hover:border-violet-500/40 transition-colors">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-full bg-violet-500/10">
+                    <Home className="h-5 w-5 text-violet-500" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold">{household.name}</h3>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Users className="h-3.5 w-3.5" />
+                      <span>{members?.length} miembros</span>
+                      {balances && balances.simplifiedDebts.length > 0 && (
+                        <Badge variant="secondary" className="text-xs">
+                          {balances.simplifiedDebts.length} pagos pendientes
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <ArrowRight className="h-5 w-5 text-muted-foreground" />
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+      )}
 
       {/* ========================================== */}
       {/* VISTA CON BANCO CONECTADO                 */}
