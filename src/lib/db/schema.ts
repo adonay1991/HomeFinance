@@ -238,3 +238,97 @@ export type NewBankTransaction = typeof bankTransactions.$inferInsert
 export type BankSyncLog = typeof bankSyncLog.$inferSelect
 export type NewBankSyncLog = typeof bankSyncLog.$inferInsert
 
+// ==========================================
+// TABLAS: Hogares Compartidos
+// ==========================================
+
+/**
+ * Hogares/grupos para compartir finanzas
+ * Cada usuario pertenece a un único hogar
+ */
+export const households = pgTable('households', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull().default('Mi Hogar'),
+  inviteCode: text('invite_code').notNull().unique(),
+  ownerId: uuid('owner_id').references(() => users.id, { onDelete: 'restrict' }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('idx_households_owner').on(table.ownerId),
+  index('idx_households_invite_code').on(table.inviteCode),
+])
+
+/**
+ * Miembros de cada hogar con sus roles
+ * owner: puede administrar el hogar
+ * member: solo puede participar
+ */
+export const householdMembers = pgTable('household_members', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  householdId: uuid('household_id').references(() => households.id, { onDelete: 'cascade' }).notNull(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull().unique(),
+  role: text('role').notNull().default('member'), // 'owner' | 'member'
+  joinedAt: timestamp('joined_at').defaultNow().notNull(),
+}, (table) => [
+  index('idx_household_members_household').on(table.householdId),
+  index('idx_household_members_user').on(table.userId),
+])
+
+/**
+ * Invitaciones pendientes para unirse a un hogar
+ * Token de 64 chars para links seguros + código de 6 chars para compartir manualmente
+ */
+export const householdInvitations = pgTable('household_invitations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  householdId: uuid('household_id').references(() => households.id, { onDelete: 'cascade' }).notNull(),
+  email: text('email').notNull(),
+  token: text('token').notNull().unique(),
+  status: text('status').notNull().default('pending'), // 'pending' | 'accepted' | 'cancelled' | 'expired'
+  invitedBy: uuid('invited_by').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  acceptedAt: timestamp('accepted_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('idx_invitations_token').on(table.token),
+  index('idx_invitations_email').on(table.email),
+  index('idx_invitations_status').on(table.status),
+  index('idx_invitations_household').on(table.householdId),
+])
+
+/**
+ * Registro de pagos/liquidaciones entre miembros
+ * Cuando alguien paga a otro para saldar deudas
+ */
+export const settlements = pgTable('settlements', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  householdId: uuid('household_id').references(() => households.id, { onDelete: 'cascade' }).notNull(),
+  fromUserId: uuid('from_user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  toUserId: uuid('to_user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),
+  note: text('note'),
+  settledAt: timestamp('settled_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('idx_settlements_household').on(table.householdId),
+  index('idx_settlements_from_user').on(table.fromUserId),
+  index('idx_settlements_to_user').on(table.toUserId),
+  index('idx_settlements_date').on(table.settledAt),
+])
+
+// ==========================================
+// TIPOS INFERIDOS - HOGARES
+// ==========================================
+export type Household = typeof households.$inferSelect
+export type NewHousehold = typeof households.$inferInsert
+
+export type HouseholdMember = typeof householdMembers.$inferSelect
+export type NewHouseholdMember = typeof householdMembers.$inferInsert
+
+export type HouseholdInvitation = typeof householdInvitations.$inferSelect
+export type NewHouseholdInvitation = typeof householdInvitations.$inferInsert
+
+export type Settlement = typeof settlements.$inferSelect
+export type NewSettlement = typeof settlements.$inferInsert
+
+export type HouseholdRole = 'owner' | 'member'
+export type InvitationStatus = 'pending' | 'accepted' | 'cancelled' | 'expired'
+
