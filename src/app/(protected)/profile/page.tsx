@@ -1,12 +1,15 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { getUser, getUserProfile, signOut } from '@/lib/auth/actions'
+import { getUserHousehold, getHouseholdMembers } from '@/lib/actions/household'
 import { redirect } from 'next/navigation'
-import { User, Mail, Home, LogOut, Settings } from 'lucide-react'
+import { User, Mail, Home, LogOut, Settings, Users, ChevronRight, Crown } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { BankStatusCard } from '@/components/bank'
+import Link from 'next/link'
 
 // ==========================================
 // PÁGINA: PERFIL DE USUARIO
@@ -19,7 +22,14 @@ export default async function ProfilePage() {
     redirect('/login')
   }
 
-  const profile = await getUserProfile()
+  const [profile, householdResult, membersResult] = await Promise.all([
+    getUserProfile(),
+    getUserHousehold(),
+    getHouseholdMembers(),
+  ])
+
+  const household = householdResult.data
+  const members = membersResult.data
 
   const initials = profile?.name
     ? profile.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
@@ -80,15 +90,35 @@ export default async function ProfilePage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <Link href="/household" className="flex items-center gap-3 -mx-2 px-2 py-2 rounded-lg hover:bg-muted/50 transition-colors group">
             <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
               <Home className="w-5 h-5 text-muted-foreground" />
             </div>
-            <div>
+            <div className="flex-1">
               <p className="text-sm text-muted-foreground">Hogar</p>
-              <p className="font-medium">HomeFinance</p>
+              <div className="flex items-center gap-2">
+                <p className="font-medium">{household?.name || 'Sin hogar'}</p>
+                {household?.isOwner && (
+                  <Badge variant="secondary" className="text-xs gap-1">
+                    <Crown className="w-3 h-3" />
+                    Propietario
+                  </Badge>
+                )}
+              </div>
             </div>
-          </div>
+            <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors" />
+          </Link>
+
+          {members && members.length > 0 && (
+            <div className="flex items-center gap-3 pl-[52px]">
+              <div className="flex items-center gap-1">
+                <Users className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">
+                  {members.length} {members.length === 1 ? 'miembro' : 'miembros'}
+                </span>
+              </div>
+            </div>
+          )}
 
           {memberSince && (
             <div className="pt-2 border-t">
