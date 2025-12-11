@@ -7,10 +7,10 @@ import { getExpenses, getMonthlyStats, getMonthlyHistory } from '@/lib/actions/e
 import { getBudgetSummary, getCategoryBudgets } from '@/lib/actions/budgets'
 import { getRecurringExpenses, getRecurringExpensesSummary } from '@/lib/actions/recurring-expenses'
 import { getUserProfile } from '@/lib/auth/actions'
-import { hasBankConnection, getIncomeVsExpensesHistory } from '@/lib/actions/banking'
+import { hasBankConnection, getIncomeVsExpensesHistory, getBalanceHistory } from '@/lib/actions/banking'
 import { getUserHousehold, getHouseholdMembers, getHouseholdBalances } from '@/lib/actions/household'
 import { ExpenseList } from '@/components/expenses'
-import { CategoryChart, MonthlyChart, IncomeVsExpensesChart } from '@/components/charts'
+import { CategoryChart, MonthlyChart, IncomeVsExpensesChart, BalanceEvolutionChart } from '@/components/charts'
 import { BudgetAlert } from '@/components/alerts'
 import { BudgetSetup, CategoryBudgets } from '@/components/budgets'
 import { RecurringExpenseCard } from '@/components/recurring'
@@ -43,6 +43,7 @@ export default async function DashboardPage() {
     { data: recurringSummary },
     userProfile,
     incomeVsExpensesHistory,
+    balanceHistory,
     householdResult,
     membersResult,
     balancesResult,
@@ -59,8 +60,9 @@ export default async function DashboardPage() {
     getRecurringExpenses(),
     getRecurringExpensesSummary(),
     getUserProfile(),
-    // Solo obtener datos de ingresos vs gastos si tiene banco conectado
+    // Solo obtener datos de banco si tiene banco conectado
     hasBankConnected ? getIncomeVsExpensesHistory(6) : Promise.resolve([]),
+    hasBankConnected ? getBalanceHistory(90) : Promise.resolve([]),
     getUserHousehold(),
     getHouseholdMembers(),
     getHouseholdBalances(),
@@ -113,8 +115,8 @@ export default async function DashboardPage() {
 
       {/* Card de Hogar Compartido (si tiene múltiples miembros o deudas) */}
       {household && hasMultipleMembers && (
-        <Link href="/household">
-          <Card className="bg-gradient-to-br from-violet-500/10 to-purple-500/10 border-violet-500/20 hover:border-violet-500/40 transition-colors">
+        <Link href="/household" className="block">
+          <Card className="bg-gradient-to-br from-violet-500/10 to-purple-500/10 border-violet-500/20 hover:border-violet-500/40 transition-colors mb-2">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -209,6 +211,11 @@ export default async function DashboardPage() {
 
           {/* Gráficos */}
           <div className="space-y-4">
+            {/* Gráfico de Evolución del Saldo (solo banco conectado) */}
+            {balanceHistory && balanceHistory.length > 0 && (
+              <BalanceEvolutionChart data={balanceHistory} />
+            )}
+
             {/* Gráfico de Ingresos vs Gastos (solo banco conectado) */}
             {incomeVsExpensesHistory && incomeVsExpensesHistory.length > 0 && (
               <IncomeVsExpensesChart data={incomeVsExpensesHistory} />

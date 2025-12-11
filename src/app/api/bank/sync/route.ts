@@ -7,6 +7,7 @@ import {
   bankAccounts,
   bankTransactions,
   bankSyncLog,
+  bankBalanceHistory,
   expenses,
 } from '@/lib/db/client'
 import { eq, and } from 'drizzle-orm'
@@ -212,6 +213,28 @@ export async function POST(request: NextRequest) {
             transactionsFetched: result.transactionsFetched,
             transactionsNew: result.transactionsNew,
           })
+
+          // Guardar saldo actual en historial (para gráficos de evolución)
+          try {
+            const balances = await client.getBalances(account.accountUid)
+            const relevantBalance = balances.find(b =>
+              b.balanceType === 'closingAvailable' ||
+              b.balanceType === 'interimAvailable'
+            ) || balances[0]
+
+            if (relevantBalance?.balanceAmount?.amount) {
+              await db.insert(bankBalanceHistory).values({
+                accountId: account.id,
+                balance: relevantBalance.balanceAmount.amount,
+                currency: relevantBalance.balanceAmount.currency,
+                balanceType: relevantBalance.balanceType,
+                referenceDate: new Date().toISOString().split('T')[0],
+              })
+            }
+          } catch (balanceErr) {
+            // Si falla obtener balance, solo logueamos pero no fallamos la sync
+            console.warn('[Bank Sync] No se pudo guardar historial de saldo:', balanceErr)
+          }
 
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : 'Error desconocido'
