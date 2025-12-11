@@ -325,6 +325,64 @@ export async function getCategoryBudgets(year: number, month: number) {
   return { data: result }
 }
 
+// ==========================================
+// VERIFICACIÓN DE ALERTAS DE PRESUPUESTO
+// ==========================================
+
+export type BudgetAlertLevel = 'ok' | 'warning' | 'danger' | 'exceeded'
+
+export interface BudgetAlertInfo {
+  level: BudgetAlertLevel
+  percentage: number
+  spent: number
+  budget: number
+  remaining: number
+  message: string
+}
+
+/**
+ * Verifica el estado del presupuesto y retorna info de alerta
+ * Útil para mostrar notificaciones después de crear un gasto
+ */
+export async function checkBudgetAlert(year?: number, month?: number): Promise<{ data: BudgetAlertInfo | null }> {
+  const now = new Date()
+  const targetYear = year ?? now.getFullYear()
+  const targetMonth = month ?? (now.getMonth() + 1)
+
+  const result = await getBudgetSummary(targetYear, targetMonth)
+
+  if (!result.data || !result.data.hasBudget) {
+    return { data: null }
+  }
+
+  const { budget, spent, remaining, percentage } = result.data
+
+  let level: BudgetAlertLevel = 'ok'
+  let message = ''
+
+  if (percentage > 100) {
+    level = 'exceeded'
+    message = `Has excedido tu presupuesto en ${Math.abs(remaining).toFixed(2)}€`
+  } else if (percentage >= 100) {
+    level = 'danger'
+    message = `Has llegado al límite de tu presupuesto`
+  } else if (percentage >= 80) {
+    level = 'warning'
+    message = `Has usado el ${percentage.toFixed(0)}% de tu presupuesto`
+  }
+
+  return {
+    data: {
+      level,
+      percentage,
+      spent,
+      budget,
+      remaining,
+      message,
+    }
+  }
+}
+
 // Copiar presupuestos del mes anterior al actual
 export async function copyBudgetsFromPreviousMonth(year: number, month: number) {
   const supabase = await createClient()

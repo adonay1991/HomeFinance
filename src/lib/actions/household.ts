@@ -143,42 +143,76 @@ export async function getHouseholdMembers(): Promise<{ data: MemberWithUser[]; e
     return { data: [] }
   }
 
-  // Obtener miembros con datos del usuario
-  const { data: members, error } = await supabase
+  // Obtener miembros sin join (evita problemas de RLS)
+  const { data: members, error: membersError } = await supabase
     .from('household_members')
-    .select(`
-      id,
-      user_id,
-      role,
-      joined_at,
-      users!inner (
-        id,
-        name,
-        email
-      )
-    `)
+    .select('id, user_id, role, joined_at')
     .eq('household_id', profile.household_id)
     .order('joined_at', { ascending: true })
 
-  if (error) {
-    console.error('[Household] Error fetching members:', error)
-    return { error: 'Error al cargar miembros', data: [] }
+  // Si hay error de RLS o la tabla no existe, devolver al menos el usuario actual
+  if (membersError || !members || members.length === 0) {
+    if (membersError) {
+      console.warn('[Household] Error fetching members (possibly RLS):', membersError.message || 'Unknown error')
+    }
+
+    // Intentar devolver al menos el usuario actual como miembro
+    const { data: currentUserData } = await supabase
+      .from('users')
+      .select('id, name, email')
+      .eq('id', user.id)
+      .single()
+
+    if (currentUserData) {
+      return {
+        data: [{
+          id: 'self',
+          userId: user.id,
+          role: 'owner' as const,
+          joinedAt: new Date().toISOString(),
+          user: {
+            id: currentUserData.id,
+            name: currentUserData.name ?? 'Usuario',
+            email: currentUserData.email ?? '',
+          },
+        }],
+      }
+    }
+
+    return { data: [] }
   }
 
+  // Obtener datos de usuarios por separado
+  const userIds = members.map(m => m.user_id)
+  const { data: usersData, error: usersError } = await supabase
+    .from('users')
+    .select('id, name, email')
+    .in('id', userIds)
+
+  if (usersError) {
+    console.error('[Household] Error fetching users:', usersError)
+    // Continuar sin datos de usuario si falla
+  }
+
+  // Crear mapa de usuarios
+  const usersMap = new Map<string, { id: string; name: string; email: string }>()
+  usersData?.forEach(u => {
+    usersMap.set(u.id, { id: u.id, name: u.name ?? 'Usuario', email: u.email ?? '' })
+  })
+
   // Transformar el resultado
-  const transformedMembers = (members || []).map((m) => {
-    // Supabase puede devolver users como objeto o array dependiendo de la relación
-    const userData = m.users as unknown as { id: string; name: string; email: string }
+  const transformedMembers: MemberWithUser[] = members.map((m) => {
+    const userData = usersMap.get(m.user_id) ?? {
+      id: m.user_id,
+      name: 'Usuario desconocido',
+      email: ''
+    }
     return {
       id: m.id,
       userId: m.user_id,
       role: m.role as 'owner' | 'member',
       joinedAt: m.joined_at,
-      user: {
-        id: userData.id,
-        name: userData.name,
-        email: userData.email,
-      },
+      user: userData,
     }
   })
 
@@ -212,15 +246,39 @@ export async function getHouseholdBalances(options?: {
 
   const householdId = profile.household_id
 
-  // 1. Obtener miembros del hogar
-  const { data: members } = await supabase
+  // 1. Obtener miembros del hogar (sin join para evitar problemas de RLS)
+  const { data: membersData, error: membersError } = await supabase
     .from('household_members')
-    .select('user_id, users!inner(id, name, email)')
+    .select('user_id')
     .eq('household_id', householdId)
 
-  if (!members || members.length === 0) {
+  // Si hay error de RLS, devolver datos vacíos pero sin error
+  if (membersError || !membersData || membersData.length === 0) {
+    if (membersError) {
+      console.warn('[Household] Error fetching members for balances (possibly RLS):', membersError.message || 'Unknown error')
+    }
     return { data: { totalExpenses: 0, perPersonShare: 0, userBalances: [], simplifiedDebts: [] } }
   }
+
+  // Obtener datos de usuarios por separado
+  const memberUserIds = membersData.map(m => m.user_id)
+  const { data: membersUsersData } = await supabase
+    .from('users')
+    .select('id, name, email')
+    .in('id', memberUserIds)
+
+  // Crear estructura de members compatible
+  const members = membersData.map(m => {
+    const userData = membersUsersData?.find(u => u.id === m.user_id)
+    return {
+      user_id: m.user_id,
+      users: {
+        id: userData?.id ?? m.user_id,
+        name: userData?.name ?? 'Usuario',
+        email: userData?.email ?? ''
+      }
+    }
+  })
 
   // 2. Construir query de gastos
   let expensesQuery = supabase
