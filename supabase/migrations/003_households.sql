@@ -185,20 +185,19 @@ DROP POLICY IF EXISTS "Authenticated users full access to budgets" ON public.bud
 CREATE POLICY "Users can manage household budgets" ON public.budgets
   FOR ALL USING (household_id = public.get_user_household_id());
 
--- Category Budgets
-DROP POLICY IF EXISTS "Authenticated users full access to category_budgets" ON public.category_budgets;
-CREATE POLICY "Users can manage household category_budgets" ON public.category_budgets
-  FOR ALL USING (household_id = public.get_user_household_id());
-
 -- Savings Goals
 DROP POLICY IF EXISTS "Authenticated users full access to savings_goals" ON public.savings_goals;
 CREATE POLICY "Users can manage household savings_goals" ON public.savings_goals
   FOR ALL USING (household_id = public.get_user_household_id());
 
--- Recurring Expenses
-DROP POLICY IF EXISTS "Authenticated users full access to recurring_expenses" ON public.recurring_expenses;
-CREATE POLICY "Users can manage household recurring_expenses" ON public.recurring_expenses
-  FOR ALL USING (household_id = public.get_user_household_id());
+-- Recurring Expenses (solo si la tabla existe)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'recurring_expenses') THEN
+    EXECUTE 'DROP POLICY IF EXISTS "Authenticated users full access to recurring_expenses" ON public.recurring_expenses';
+    EXECUTE 'CREATE POLICY "Users can manage household recurring_expenses" ON public.recurring_expenses FOR ALL USING (household_id = public.get_user_household_id())';
+  END IF;
+END $$;
 
 -- ==========================================
 -- ACTUALIZAR TRIGGER: handle_new_user
@@ -270,7 +269,7 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_expenses_household_paid_by
   ON public.expenses(household_id, paid_by);
 
--- Invitaciones activas
-CREATE INDEX IF NOT EXISTS idx_invitations_active
-  ON public.household_invitations(email, status)
-  WHERE status = 'pending' AND expires_at > NOW();
+-- Invitaciones pendientes (sin NOW() que no es IMMUTABLE)
+CREATE INDEX IF NOT EXISTS idx_invitations_pending
+  ON public.household_invitations(email, status, expires_at)
+  WHERE status = 'pending';

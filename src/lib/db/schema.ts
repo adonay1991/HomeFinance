@@ -220,6 +220,23 @@ export const bankSyncLog = pgTable('bank_sync_log', {
   index('idx_bank_sync_log_date').on(table.syncedAt),
 ])
 
+/**
+ * Historial de saldos bancarios
+ * Guarda el saldo de cada cuenta en cada sincronización para gráficos de evolución
+ */
+export const bankBalanceHistory = pgTable('bank_balance_history', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').references(() => bankAccounts.id, { onDelete: 'cascade' }).notNull(),
+  balance: decimal('balance', { precision: 12, scale: 2 }).notNull(),
+  currency: text('currency').default('EUR').notNull(),
+  balanceType: text('balance_type'), // 'closingAvailable' | 'interimAvailable' | etc.
+  referenceDate: date('reference_date').notNull(),
+  fetchedAt: timestamp('fetched_at').defaultNow().notNull(),
+}, (table) => [
+  index('idx_bank_balance_history_account').on(table.accountId),
+  index('idx_bank_balance_history_date').on(table.referenceDate),
+])
+
 // ==========================================
 // TIPOS INFERIDOS DE DRIZZLE - BANKING
 // ==========================================
@@ -237,6 +254,9 @@ export type NewBankTransaction = typeof bankTransactions.$inferInsert
 
 export type BankSyncLog = typeof bankSyncLog.$inferSelect
 export type NewBankSyncLog = typeof bankSyncLog.$inferInsert
+
+export type BankBalanceHistory = typeof bankBalanceHistory.$inferSelect
+export type NewBankBalanceHistory = typeof bankBalanceHistory.$inferInsert
 
 // ==========================================
 // TABLAS: Hogares Compartidos
@@ -331,4 +351,35 @@ export type NewSettlement = typeof settlements.$inferInsert
 
 export type HouseholdRole = 'owner' | 'member'
 export type InvitationStatus = 'pending' | 'accepted' | 'cancelled' | 'expired'
+
+// ==========================================
+// TABLA: expense_splits
+// División de gastos entre miembros del hogar
+// ==========================================
+
+/**
+ * Splits de gastos - permite dividir un gasto entre varios miembros
+ * con diferentes proporciones o montos fijos
+ */
+export const expenseSplits = pgTable('expense_splits', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  expenseId: uuid('expense_id').references(() => expenses.id, { onDelete: 'cascade' }).notNull(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),
+  percentage: decimal('percentage', { precision: 5, scale: 2 }), // Porcentaje del total (opcional)
+  isPaid: boolean('is_paid').default(false).notNull(),
+  paidAt: timestamp('paid_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('idx_expense_splits_expense').on(table.expenseId),
+  index('idx_expense_splits_user').on(table.userId),
+  index('idx_expense_splits_is_paid').on(table.isPaid),
+  uniqueIndex('idx_expense_splits_unique').on(table.expenseId, table.userId),
+])
+
+// ==========================================
+// TIPOS INFERIDOS - EXPENSE SPLITS
+// ==========================================
+export type ExpenseSplit = typeof expenseSplits.$inferSelect
+export type NewExpenseSplit = typeof expenseSplits.$inferInsert
 
