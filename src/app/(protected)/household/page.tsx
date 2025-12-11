@@ -1,7 +1,9 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getUserHousehold, getHouseholdMembers, getHouseholdBalances } from '@/lib/actions/household'
+import { getMyPendingSplits, getSplitsOwedToMe } from '@/lib/actions/splits'
 import { HouseholdCard, MembersList, BalancesCard, JoinHouseholdForm } from '@/components/household'
+import { PendingSplitsCard } from '@/components/expenses'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
@@ -20,15 +22,25 @@ export default async function HouseholdPage() {
   }
 
   // Cargar todos los datos en paralelo
-  const [householdResult, membersResult, balancesResult] = await Promise.all([
+  const [
+    householdResult,
+    membersResult,
+    balancesResult,
+    splitsIoweResult,
+    splitsOwedToMeResult,
+  ] = await Promise.all([
     getUserHousehold(),
     getHouseholdMembers(),
     getHouseholdBalances(),
+    getMyPendingSplits(),
+    getSplitsOwedToMe(),
   ])
 
   const household = householdResult.data
   const members = membersResult.data
   const balances = balancesResult.data
+  const splitsIowe = splitsIoweResult.data ?? []
+  const splitsOwedToMe = splitsOwedToMeResult.data ?? []
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
@@ -52,6 +64,14 @@ export default async function HouseholdPage() {
           <>
             {/* Card del hogar con código de invitación prominente */}
             <HouseholdCard household={household} memberCount={members.length} />
+
+            {/* Splits pendientes (gastos divididos) */}
+            {(splitsIowe.length > 0 || splitsOwedToMe.length > 0) && (
+              <PendingSplitsCard
+                splitsIowe={splitsIowe}
+                splitsOwedToMe={splitsOwedToMe}
+              />
+            )}
 
             {/* Balances (si hay más de un miembro) */}
             {members.length > 1 && balances && (
