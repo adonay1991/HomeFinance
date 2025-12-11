@@ -1,7 +1,7 @@
 'use server'
 
-import { db, bankConnections, bankAccounts, bankTransactions } from '@/lib/db/client'
-import { eq, and, gte, lte, gt, lt, desc, sql } from 'drizzle-orm'
+import { db, bankConnections, bankAccounts, bankTransactions, bankBalanceHistory } from '@/lib/db/client'
+import { eq, and, gte, lte, desc, sql, asc } from 'drizzle-orm'
 import { createClient as createSupabaseClient } from '@/lib/supabase/server'
 
 // ==========================================
@@ -320,4 +320,164 @@ async function getUserAccountIds(userId: string): Promise<string[]> {
 function maskIban(iban: string): string {
   if (iban.length <= 8) return iban
   return `${iban.slice(0, 4)}${'*'.repeat(iban.length - 8)}${iban.slice(-4)}`
+}
+
+// ==========================================
+// NUEVAS FUNCIONES: Historial de saldos e ingresos
+// ==========================================
+
+/**
+ * Obtiene el historial de saldos para gráficos de evolución
+ * @param days Número de días hacia atrás (default: 90)
+ */
+export async function getBalanceHistory(days: number = 90) {
+  const supabase = await createSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) return []
+
+  const accountIds = await getUserAccountIds(user.id)
+  if (accountIds.length === 0) return []
+
+  // Calcular fecha de inicio
+  const startDate = new Date()
+  startDate.setDate(startDate.getDate() - days)
+  const startDateStr = startDate.toISOString().split('T')[0]
+
+  // Obtener historial de saldos
+  const history = await db
+    .select({
+      balance: bankBalanceHistory.balance,
+      currency: bankBalanceHistory.currency,
+      referenceDate: bankBalanceHistory.referenceDate,
+      fetchedAt: bankBalanceHistory.fetchedAt,
+    })
+    .from(bankBalanceHistory)
+    .where(
+      and(
+        sql`${bankBalanceHistory.accountId} IN (${sql.join(accountIds.map(id => sql`${id}`), sql`, `)})`,
+        gte(bankBalanceHistory.referenceDate, startDateStr)
+      )
+    )
+    .orderBy(asc(bankBalanceHistory.referenceDate))
+
+  // Agrupar por fecha (sumando si hay múltiples cuentas)
+  const balanceByDate = new Map<string, { balance: number; currency: string }>()
+
+  for (const record of history) {
+    const dateKey = record.referenceDate
+    const currentBalance = parseFloat(record.balance || '0')
+
+    if (balanceByDate.has(dateKey)) {
+      const existing = balanceByDate.get(dateKey)!
+      existing.balance += currentBalance
+    } else {
+      balanceByDate.set(dateKey, {
+        balance: currentBalance,
+        currency: record.currency || 'EUR',
+      })
+    }
+  }
+
+  // Convertir a array para el gráfico
+  return Array.from(balanceByDate.entries()).map(([date, data]) => ({
+    date,
+    balance: Math.round(data.balance * 100) / 100,
+    currency: data.currency,
+  }))
+}
+
+/**
+ * Obtiene el total de ingresos del mes actual
+ */
+export async function getMonthlyIncome() {
+  const supabase = await createSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    return { income: 0, transactionCount: 0 }
+  }
+
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = now.getMonth() + 1
+
+  // Calcular fechas del mes
+  const startDate = new Date(year, month - 1, 1)
+  const endDate = new Date(year, month, 0)
+  const startDateStr = startDate.toISOString().split('T')[0]
+  const endDateStr = endDate.toISOString().split('T')[0]
+
+  // Obtener IDs de cuentas del usuario
+  const accountIds = await getUserAccountIds(user.id)
+
+  if (accountIds.length === 0) {
+    return { income: 0, transactionCount: 0 }
+  }
+
+  // Obtener solo transacciones con monto positivo (ingresos)
+  const transactions = await db
+    .select({
+      amount: bankTransactions.amount,
+    })
+    .from(bankTransactions)
+    .where(
+      and(
+        sql`${bankTransactions.accountId} IN (${sql.join(accountIds.map(id => sql`${id}`), sql`, `)})`,
+        gte(bankTransactions.bookingDate, startDateStr),
+        lte(bankTransactions.bookingDate, endDateStr),
+        sql`CAST(${bankTransactions.amount} AS DECIMAL) > 0` // Solo ingresos
+      )
+    )
+
+  let totalIncome = 0
+  for (const tx of transactions) {
+    totalIncome += parseFloat(tx.amount || '0')
+  }
+
+  return {
+    income: Math.round(totalIncome * 100) / 100,
+    transactionCount: transactions.length,
+  }
+}
+
+/**
+ * Obtiene los últimos ingresos del usuario
+ * @param limit Número de transacciones a obtener
+ */
+export async function getRecentIncomes(limit: number = 5) {
+  const supabase = await createSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) return []
+
+  const accountIds = await getUserAccountIds(user.id)
+  if (accountIds.length === 0) return []
+
+  const transactions = await db
+    .select({
+      id: bankTransactions.id,
+      amount: bankTransactions.amount,
+      currency: bankTransactions.currency,
+      description: bankTransactions.description,
+      debtorName: bankTransactions.debtorName,
+      bookingDate: bankTransactions.bookingDate,
+    })
+    .from(bankTransactions)
+    .where(
+      and(
+        sql`${bankTransactions.accountId} IN (${sql.join(accountIds.map(id => sql`${id}`), sql`, `)})`,
+        sql`CAST(${bankTransactions.amount} AS DECIMAL) > 0` // Solo ingresos
+      )
+    )
+    .orderBy(desc(bankTransactions.bookingDate), desc(bankTransactions.createdAt))
+    .limit(limit)
+
+  return transactions.map(tx => ({
+    id: tx.id,
+    amount: parseFloat(tx.amount || '0'),
+    currency: tx.currency || 'EUR',
+    description: tx.description || tx.debtorName || 'Ingreso',
+    date: tx.bookingDate,
+  }))
 }

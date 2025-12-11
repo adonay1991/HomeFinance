@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { Home, PlusCircle, Target, PieChart, User } from 'lucide-react'
+import { Home, PlusCircle, BarChart3, PieChart, User } from 'lucide-react'
 
 // ==========================================
 // BOTTOM NAVIGATION (MÓVIL-FIRST)
@@ -15,7 +15,7 @@ const navItems = [
   { href: '/', icon: Home, label: 'Inicio' },
   { href: '/expenses', icon: PieChart, label: 'Gastos' },
   { href: '/add', icon: PlusCircle, label: 'Añadir', isMain: true },
-  { href: '/goals', icon: Target, label: 'Metas' },
+  { href: '/analytics', icon: BarChart3, label: 'Analytics' },
   { href: '/profile', icon: User, label: 'Perfil' },
 ]
 
