@@ -28,8 +28,10 @@ interface BalanceData {
 
 // Clave para localStorage
 const BALANCE_CACHE_KEY = 'homefinance_balance_cache'
+const BALANCE_CACHE_TIME_KEY = 'homefinance_balance_cache_time'
 const LAST_SYNC_KEY = 'homefinance_last_sync'
 const MIN_SYNC_INTERVAL = 60 * 60 * 1000 // 1 hora en milisegundos
+const CACHE_MAX_AGE = 60 * 60 * 1000 // Cache válido por 1 hora
 
 export function BalanceCard() {
   const [balance, setBalance] = useState<BalanceData | null>(null)
@@ -39,7 +41,16 @@ export function BalanceCard() {
   const [rateLimitError, setRateLimitError] = useState<string | null>(null)
   const [canSync, setCanSync] = useState(true)
 
-  // Cargar balance del cache primero, luego intentar actualizar
+  // Verificar si el cache es válido (menos de 1 hora)
+  const isCacheValid = useCallback((): boolean => {
+    const cacheTime = localStorage.getItem(BALANCE_CACHE_TIME_KEY)
+    if (!cacheTime) return false
+
+    const elapsed = Date.now() - parseInt(cacheTime, 10)
+    return elapsed < CACHE_MAX_AGE
+  }, [])
+
+  // Cargar balance del cache primero, solo actualizar si es necesario
   const loadBalance = useCallback(async (forceRefresh = false) => {
     try {
       setError(null)
@@ -47,11 +58,21 @@ export function BalanceCard() {
 
       // Intentar cargar del cache primero
       const cachedData = localStorage.getItem(BALANCE_CACHE_KEY)
-      if (cachedData && !forceRefresh) {
+      if (cachedData) {
         const cached = JSON.parse(cachedData) as BalanceData
         setBalance(cached)
+
+        // Si el cache es válido y no forzamos refresh, no hacer llamada a API
+        // Esto evita consumir las 4 llamadas diarias del banco
+        if (!forceRefresh && isCacheValid()) {
+          console.log('[BalanceCard] Usando cache válido, no se llama a la API del banco')
+          setIsLoading(false)
+          return
+        }
       }
 
+      // Solo hacer fetch si no hay cache, cache expirado, o forceRefresh
+      console.log('[BalanceCard] Cache expirado o forceRefresh, llamando a API del banco')
       const res = await fetch('/api/bank/balance', { credentials: 'include' })
 
       if (res.status === 404) {
@@ -80,8 +101,9 @@ export function BalanceCard() {
       setRateLimitError(null)
       setError(null)
 
-      // Guardar en cache
+      // Guardar en cache con timestamp
       localStorage.setItem(BALANCE_CACHE_KEY, JSON.stringify(data))
+      localStorage.setItem(BALANCE_CACHE_TIME_KEY, Date.now().toString())
       localStorage.setItem(LAST_SYNC_KEY, Date.now().toString())
     } catch (err) {
       console.error('[BalanceCard] Error:', err)
@@ -91,7 +113,7 @@ export function BalanceCard() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [isCacheValid])
 
   // Verificar si podemos sincronizar (cooldown)
   const checkCanSync = useCallback(() => {

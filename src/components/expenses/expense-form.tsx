@@ -10,6 +10,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { CATEGORIES, CATEGORY_LIST, CURRENCY_SYMBOL, type CategoryKey } from '@/lib/constants'
 import { createExpense, updateExpense } from '@/lib/actions/expenses'
+import { checkBudgetAlert, type BudgetAlertLevel } from '@/lib/actions/budgets'
 import { Loader2, X, Plus } from 'lucide-react'
 import {
   Utensils,
@@ -93,6 +94,34 @@ export function ExpenseForm({ initialData, onSuccess }: ExpenseFormProps) {
     }
 
     toast.success(isEditing ? 'Gasto actualizado' : 'Gasto añadido')
+
+    // Verificar alertas de presupuesto después de crear/actualizar
+    if (!isEditing) {
+      const dateObj = new Date(date)
+      const alertResult = await checkBudgetAlert(dateObj.getFullYear(), dateObj.getMonth() + 1)
+
+      if (alertResult.data && alertResult.data.level !== 'ok') {
+        const { level, message, percentage, remaining } = alertResult.data
+
+        // Mostrar toast según nivel de alerta
+        if (level === 'exceeded') {
+          toast.error(message, {
+            duration: 6000,
+            description: `Te has pasado del presupuesto mensual`,
+          })
+        } else if (level === 'danger') {
+          toast.warning(message, {
+            duration: 5000,
+            description: `Has llegado al 100% de tu presupuesto`,
+          })
+        } else if (level === 'warning') {
+          toast.warning(message, {
+            duration: 4000,
+            description: `Te quedan ${remaining.toFixed(2)}€ este mes`,
+          })
+        }
+      }
+    }
 
     if (onSuccess) {
       onSuccess()
